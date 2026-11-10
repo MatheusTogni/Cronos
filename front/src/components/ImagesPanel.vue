@@ -2,6 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { api, errorMessage } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
+import { useConfirmStore } from '@/stores/confirm'
 import { useNotifyStore } from '@/stores/notify'
 import type { CampaignImage } from '@/types/api'
 
@@ -10,6 +11,7 @@ const props = defineProps<{ campaignId: string }>()
 
 const campaign = useCampaignStore()
 const notify = useNotifyStore()
+const confirm = useConfirmStore()
 
 const images = ref<CampaignImage[]>([])
 const loading = ref(false)
@@ -65,14 +67,14 @@ async function show(img: CampaignImage) {
 const hide = () =>
   campaign.act(() => api.post(`/campaigns/${props.campaignId}/hide-image`).then(() => ({ data: null })))
 
-// exclusão com confirmação em dois toques (o viewer não tem confirm())
-const confirmDelete = ref<string | null>(null)
 async function remove(img: CampaignImage) {
-  if (confirmDelete.value !== img.id) {
-    confirmDelete.value = img.id
-    return
-  }
-  confirmDelete.value = null
+  const ok = await confirm.ask({
+    title: `Excluir a imagem "${img.title}"?`,
+    text: 'Ela some da galeria da campanha. Isso não pode ser desfeito.',
+    confirmLabel: 'Excluir',
+    icon: 'mdi-delete',
+  })
+  if (!ok) return
   try {
     await api.delete(`/images/${img.id}`)
     images.value = images.value.filter((i) => i.id !== img.id)
@@ -171,12 +173,11 @@ onMounted(load)
             <v-spacer />
             <v-btn icon="mdi-pencil" size="small" variant="text" :aria-label="`Renomear ${img.title}`" @click="startRename(img)" />
             <v-btn
-              :icon="confirmDelete === img.id ? 'mdi-delete-alert' : 'mdi-delete'"
+              icon="mdi-delete"
               size="small"
-              :color="confirmDelete === img.id ? 'error' : undefined"
-              :variant="confirmDelete === img.id ? 'flat' : 'text'"
-              :aria-label="confirmDelete === img.id ? 'Toque de novo para excluir' : `Excluir ${img.title}`"
-              :title="confirmDelete === img.id ? 'Toque de novo para excluir' : 'Excluir'"
+              variant="text"
+              :aria-label="`Excluir ${img.title}`"
+              title="Excluir"
               @click="remove(img)"
             />
           </div>

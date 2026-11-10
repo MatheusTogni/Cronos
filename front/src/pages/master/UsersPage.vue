@@ -3,11 +3,13 @@ import { onMounted, ref } from 'vue'
 import UserFormDialog from '@/components/UserFormDialog.vue'
 import { api, errorMessage } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import { useConfirmStore } from '@/stores/confirm'
 import { useNotifyStore } from '@/stores/notify'
 import { ROLE_LABEL, type UserRow } from '@/types/api'
 
 const auth = useAuthStore()
 const notify = useNotifyStore()
+const confirm = useConfirmStore()
 
 const users = ref<UserRow[]>([])
 const loading = ref(false)
@@ -50,19 +52,16 @@ function onSaved(saved: UserRow) {
   else users.value.push(saved)
 }
 
-// exclusão com confirmação em dois toques, como nas imagens
-const confirmDelete = ref<string | null>(null)
 const deleting = ref<string | null>(null)
-let confirmTimer: ReturnType<typeof setTimeout> | undefined
 
 async function remove(user: UserRow) {
-  if (confirmDelete.value !== user.id) {
-    confirmDelete.value = user.id
-    clearTimeout(confirmTimer)
-    confirmTimer = setTimeout(() => (confirmDelete.value = null), 4000)
-    return
-  }
-  confirmDelete.value = null
+  const ok = await confirm.ask({
+    title: `Excluir o login "${user.username}"?`,
+    text: `${user.displayName} não poderá mais entrar e os personagens dele serão apagados. Isso não pode ser desfeito.`,
+    confirmLabel: 'Excluir',
+    icon: 'mdi-delete',
+  })
+  if (!ok) return
   deleting.value = user.id
   try {
     await api.delete(`/users/${user.id}`)
@@ -141,15 +140,12 @@ onMounted(load)
           />
           <v-btn
             v-if="item.id !== auth.user?.id"
-            :icon="confirmDelete === item.id ? 'mdi-delete-alert' : 'mdi-delete'"
-            :color="confirmDelete === item.id ? 'error' : undefined"
-            :variant="confirmDelete === item.id ? 'flat' : 'text'"
+            icon="mdi-delete"
+            variant="text"
             size="small"
             :loading="deleting === item.id"
-            :aria-label="
-              confirmDelete === item.id ? 'Toque de novo para excluir' : `Excluir ${item.displayName}`
-            "
-            :title="confirmDelete === item.id ? 'Toque de novo para excluir' : 'Excluir'"
+            :aria-label="`Excluir ${item.displayName}`"
+            title="Excluir"
             @click="remove(item)"
           />
         </template>

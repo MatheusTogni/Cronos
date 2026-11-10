@@ -10,6 +10,7 @@ import QuickFormDialog from '@/components/QuickFormDialog.vue'
 import { api } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
 import { useClassesStore } from '@/stores/classes'
+import { useConfirmStore } from '@/stores/confirm'
 import { useNotifyStore } from '@/stores/notify'
 import { useRealtimeStore } from '@/stores/realtime'
 import {
@@ -27,6 +28,7 @@ const router = useRouter()
 const campaign = useCampaignStore()
 const classes = useClassesStore()
 const notify = useNotifyStore()
+const confirm = useConfirmStore()
 const realtime = useRealtimeStore()
 
 const id = computed(() => String(route.params.id))
@@ -45,24 +47,24 @@ async function lifecycle(action: 'open' | 'start' | 'end') {
   if (ok && action === 'start') notify.success('A aventura começou!')
 }
 
-const confirmEnd = ref(false)
-function endCampaign() {
-  if (!confirmEnd.value) {
-    confirmEnd.value = true
-    setTimeout(() => (confirmEnd.value = false), 4000)
-    return
-  }
-  confirmEnd.value = false
-  void lifecycle('end')
+async function endCampaign() {
+  const ok = await confirm.ask({
+    title: 'Encerrar a campanha?',
+    text: 'A aventura termina para todos e as fichas deixam de ser editadas.',
+    confirmLabel: 'Encerrar',
+    icon: 'mdi-close-octagon',
+  })
+  if (ok) void lifecycle('end')
 }
 
-const confirmDelete = ref(false)
 async function deleteCampaign() {
-  if (!confirmDelete.value) {
-    confirmDelete.value = true
-    setTimeout(() => (confirmDelete.value = false), 4000)
-    return
-  }
+  const sure = await confirm.ask({
+    title: `Excluir "${state.value?.name ?? 'a campanha'}"?`,
+    text: 'Personagens, imagens e o log da mesa serão apagados. Isso não pode ser desfeito.',
+    confirmLabel: 'Excluir',
+    icon: 'mdi-delete',
+  })
+  if (!sure) return
   const ok = await campaign.act(() => api.delete(`/campaigns/${id.value}`).then(() => ({ data: null })))
   if (ok) await router.push('/mestre/campanhas')
 }
@@ -75,13 +77,14 @@ const canStart = computed(
 const characterOf = (userId: string) => state.value?.characters.find((c) => c.userId === userId)
 const className = (classId: string) => classes.byId(classId)?.name ?? classId
 
-const confirmKick = ref<string | null>(null)
-async function kick(userId: string) {
-  if (confirmKick.value !== userId) {
-    confirmKick.value = userId
-    return
-  }
-  confirmKick.value = null
+async function kick(userId: string, displayName: string) {
+  const ok = await confirm.ask({
+    title: `Remover ${displayName} do lobby?`,
+    text: 'O personagem escolhido por ele nesta campanha também sai.',
+    confirmLabel: 'Remover',
+    icon: 'mdi-account-remove',
+  })
+  if (!ok) return
   await campaign.act(() => api.delete(`/campaigns/${id.value}/players/${userId}`).then(() => ({ data: null })))
 }
 
@@ -237,14 +240,8 @@ const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/
               Abrir lobby
             </v-btn>
             <div class="mt-6">
-              <v-btn
-                :color="confirmDelete ? 'error' : undefined"
-                :variant="confirmDelete ? 'flat' : 'text'"
-                prepend-icon="mdi-delete"
-                size="small"
-                @click="deleteCampaign"
-              >
-                {{ confirmDelete ? 'Toque de novo para excluir' : 'Excluir campanha' }}
+              <v-btn variant="text" prepend-icon="mdi-delete" size="small" @click="deleteCampaign">
+                Excluir campanha
               </v-btn>
             </div>
           </v-card>
@@ -285,24 +282,17 @@ const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/
                 </div>
                 <span class="lobby-status">{{ p.ready ? 'Pronto' : 'Aguardando' }}</span>
                 <v-btn
-                  :icon="confirmKick === p.userId ? 'mdi-account-remove' : 'mdi-close'"
+                  icon="mdi-close"
                   size="small"
-                  :color="confirmKick === p.userId ? 'error' : undefined"
-                  :variant="confirmKick === p.userId ? 'flat' : 'text'"
-                  :title="confirmKick === p.userId ? 'Toque de novo para remover' : 'Remover do lobby'"
+                  variant="text"
+                  title="Remover do lobby"
                   :aria-label="`Remover ${p.displayName} do lobby`"
-                  @click="kick(p.userId)"
+                  @click="kick(p.userId, p.displayName)"
                 />
               </div>
             </v-card>
-            <v-btn
-              :color="confirmEnd ? 'error' : undefined"
-              :variant="confirmEnd ? 'flat' : 'text'"
-              size="small"
-              prepend-icon="mdi-close-octagon"
-              @click="endCampaign"
-            >
-              {{ confirmEnd ? 'Toque de novo para encerrar' : 'Encerrar campanha' }}
+            <v-btn variant="text" size="small" prepend-icon="mdi-close-octagon" @click="endCampaign">
+              Encerrar campanha
             </v-btn>
           </template>
 
@@ -370,25 +360,13 @@ const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/
               </v-card>
 
               <div v-if="state.status === 'ACTIVE'">
-                <v-btn
-                  :color="confirmEnd ? 'error' : undefined"
-                  :variant="confirmEnd ? 'flat' : 'text'"
-                  size="small"
-                  prepend-icon="mdi-close-octagon"
-                  @click="endCampaign"
-                >
-                  {{ confirmEnd ? 'Toque de novo para encerrar' : 'Encerrar campanha' }}
+                <v-btn variant="text" size="small" prepend-icon="mdi-close-octagon" @click="endCampaign">
+                  Encerrar campanha
                 </v-btn>
               </div>
               <div v-else>
-                <v-btn
-                  :color="confirmDelete ? 'error' : undefined"
-                  :variant="confirmDelete ? 'flat' : 'text'"
-                  size="small"
-                  prepend-icon="mdi-delete"
-                  @click="deleteCampaign"
-                >
-                  {{ confirmDelete ? 'Toque de novo para excluir' : 'Excluir campanha' }}
+                <v-btn variant="text" size="small" prepend-icon="mdi-delete" @click="deleteCampaign">
+                  Excluir campanha
                 </v-btn>
               </div>
             </aside>

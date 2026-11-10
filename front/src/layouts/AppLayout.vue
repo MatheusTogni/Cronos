@@ -92,8 +92,7 @@ function logout() {
 <style scoped>
 .app-bar {
   background:
-    linear-gradient(180deg, rgba(36, 24, 46, 0.96) 0%, rgba(14, 9, 18, 0.96) 100%) !important;
-  backdrop-filter: blur(6px);
+    linear-gradient(180deg, #24182e 0%, #0e0912 100%) !important;
   border-bottom: 1px solid rgba(212, 160, 76, 0.45);
   box-shadow:
     0 1px 0 rgba(0, 0, 0, 0.8),
@@ -154,8 +153,19 @@ function logout() {
   box-shadow: 0 0 10px rgba(212, 160, 76, 0.4);
 }
 
-.nav-tabs {
-  background: rgba(0, 0, 0, 0.25);
+/* faixa das abas ocupa a largura toda (antes só o trecho das abas escurecia) */
+.app-bar :deep(.v-toolbar__extension) {
+  background: rgba(0, 0, 0, 0.28);
+  border-top: 1px solid rgba(212, 160, 76, 0.12);
+}
+
+/* sem o realce cinza que o Vuetify deixa na aba depois do clique */
+.nav-tabs :deep(.v-tab .v-btn__overlay) {
+  background: var(--gold);
+}
+
+.nav-tabs :deep(.v-tab:focus:not(:focus-visible) .v-btn__overlay) {
+  opacity: 0;
 }
 
 .page-enter-active,
