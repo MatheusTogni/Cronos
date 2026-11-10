@@ -4,7 +4,7 @@
 //   npm run dev:db
 //
 // .env correspondente:
-//   DATABASE_URL="postgresql://postgres:postgres@localhost:5433/rpg?schema=public"
+//   DB_HOST=localhost  DB_PORT=5433  DB_USERNAME=postgres  DB_PASSWORD=postgres  DB_DATABASE=rpg
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';

@@ -5,6 +5,7 @@
  *
  *   npx prisma db seed
  */
+import 'dotenv/config';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -13,6 +14,7 @@ import {
   Prisma,
   PrismaClient,
 } from '@prisma/client';
+import { databaseUrl } from '../src/prisma/database-url';
 
 interface SeedAbility {
   kind: AbilityKind;
@@ -40,7 +42,7 @@ interface SeedClass {
   abilities: SeedAbility[];
 }
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ datasourceUrl: databaseUrl() });
 
 const json = (v: unknown) =>
   v === undefined ? Prisma.DbNull : (v as Prisma.InputJsonValue);

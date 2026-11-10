@@ -7,6 +7,7 @@
 import 'dotenv/config';
 import { PrismaClient, Role } from '@prisma/client';
 import { hashPassword } from '../auth/password';
+import { databaseUrl } from '../prisma/database-url';
 
 async function main() {
   const [rawUsername, password, displayName] = process.argv.slice(2);
@@ -29,7 +30,7 @@ async function main() {
     process.exit(1);
   }
 
-  const prisma = new PrismaClient();
+  const prisma = new PrismaClient({ datasourceUrl: databaseUrl() });
   try {
     const passwordHash = await hashPassword(password);
     const existing = await prisma.user.findUnique({ where: { username } });
