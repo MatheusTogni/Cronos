@@ -130,12 +130,17 @@ export class GameService {
         await applyStats(tx, ch, { mana: -ability.manaCost }, delta);
       }
 
-      // Alvo
-      let targetLabel = dto.target || null;
+      // Alvo e nome da criatura: o jogador só escolhe a habilidade; quem
+      // aplica efeitos em alguém (condições, etc.) é o mestre.
+      const target = ctx.isMaster ? dto.target : undefined;
+      const targetCharacterId = ctx.isMaster ? dto.targetCharacterId : undefined;
+      const summonName = ctx.isMaster ? dto.summonName : undefined;
+
+      let targetLabel = target || null;
       let targetChar: Character | null = null;
-      if (dto.targetCharacterId) {
+      if (targetCharacterId) {
         targetChar = await tx.character.findUnique({
-          where: { id: dto.targetCharacterId },
+          where: { id: targetCharacterId },
         });
         if (!targetChar || targetChar.campaignId !== ch.campaignId) {
           throw new BadRequestException('Alvo não está nesta campanha');
@@ -163,7 +168,7 @@ export class GameService {
           const summon = await tx.summon.create({
             data: {
               characterId: ch.id,
-              name: dto.summonName || effect.name || 'Invocação',
+              name: summonName || effect.name || 'Invocação',
               hp,
               hpMax: hp,
             },
@@ -377,7 +382,7 @@ export class GameService {
     dto: CreateSummonDto,
     user: AuthUser,
   ) {
-    const ctx = await this.characterCtx(characterId, user, { owner: true });
+    const ctx = await this.characterCtx(characterId, user, { owner: false });
     return this.run(ctx.campaign.id, async (tx) => {
       const delta = new DeltaBuilder();
       const summon = await tx.summon.create({
@@ -402,7 +407,7 @@ export class GameService {
 
   async updateSummon(summonId: string, dto: UpdateSummonDto, user: AuthUser) {
     const { ctx, summon } = await this.summonCtx(summonId, user, {
-      owner: true,
+      owner: false,
     });
     const hpMax = dto.hpMax ?? summon.hpMax;
     return this.run(ctx.campaign.id, async (tx) => {
@@ -453,7 +458,7 @@ export class GameService {
 
   async removeSummon(summonId: string, user: AuthUser) {
     const { ctx, summon } = await this.summonCtx(summonId, user, {
-      owner: true,
+      owner: false,
     });
     return this.run(ctx.campaign.id, async (tx) => {
       const full = await tx.summon.findUniqueOrThrow({
@@ -481,7 +486,7 @@ export class GameService {
     dto: CreateConditionDto,
     user: AuthUser,
   ) {
-    const ctx = await this.characterCtx(characterId, user, { owner: true });
+    const ctx = await this.characterCtx(characterId, user, { owner: false });
     return this.run(ctx.campaign.id, async (tx) => {
       const delta = new DeltaBuilder();
       await this.addCondition(
@@ -516,7 +521,7 @@ export class GameService {
     if (!condition) throw new NotFoundException('Condição não encontrada');
     const characterId = condition.characterId ?? condition.summon?.characterId;
     if (!characterId) throw new NotFoundException('Condição não encontrada');
-    const ctx = await this.characterCtx(characterId, user, { owner: true });
+    const ctx = await this.characterCtx(characterId, user, { owner: false });
 
     return this.run(ctx.campaign.id, async (tx) => {
       const delta = new DeltaBuilder();
@@ -537,7 +542,7 @@ export class GameService {
   // ───────────────────────── inventário ─────────────────────────
 
   async createItem(characterId: string, dto: CreateItemDto, user: AuthUser) {
-    const ctx = await this.characterCtx(characterId, user, { owner: true });
+    const ctx = await this.characterCtx(characterId, user, { owner: false });
     return this.run(ctx.campaign.id, async (tx) => {
       const item = await tx.inventoryItem.create({
         data: {
@@ -812,7 +817,7 @@ export class GameService {
     });
     if (!item) throw new NotFoundException('Item não encontrado');
     const ctx = await this.characterCtx(item.characterId, user, {
-      owner: true,
+      owner: false,
     });
     return { ctx, item };
   }

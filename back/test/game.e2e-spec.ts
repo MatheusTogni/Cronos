@@ -245,7 +245,7 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       const { morgana } = await activeCampaign();
       const reanimar = await ability(t, 'necromante', 'Reanimar');
 
-      const res = await kaua
+      const res = await master
         .post(`/characters/${morgana.id}/abilities/${reanimar}/use`, {
           rollMode: 'manual',
           roll: 19,
@@ -276,7 +276,7 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       const { id, morgana } = await activeCampaign();
       const reanimar = await ability(t, 'necromante', 'Reanimar');
       const use = (summonName: string) =>
-        kaua
+        master
           .post(`/characters/${morgana.id}/abilities/${reanimar}/use`, {
             rollMode: 'none',
             summonName,
@@ -384,13 +384,13 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       );
       const carrasco = await ability(t, 'mascareiro', 'Máscara do Carrasco');
 
-      await joana
+      await master
         .post(`/characters/${veu.id}/abilities/${serenidade}/use`, {
           rollMode: 'none',
           targetCharacterId: morgana.id,
         })
         .expect(200);
-      const res = await joana
+      const res = await master
         .post(`/characters/${veu.id}/abilities/${carrasco}/use`, {
           rollMode: 'manual',
           roll: 20,
@@ -419,7 +419,7 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
     it('alvo fora da party fica só no texto do log', async () => {
       const { id, veu } = await activeCampaign();
       const vazia = await ability(t, 'mascareiro', 'Máscara Vazia');
-      const res = await joana
+      const res = await master
         .post(`/characters/${veu.id}/abilities/${vazia}/use`, {
           rollMode: 'none',
           target: 'o guarda da ponte',
@@ -430,6 +430,33 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       );
       const s = await state(master, id);
       expect(s.characters.every((c) => c.conditions.length === 0)).toBe(true);
+    });
+
+    it('jogador só escolhe a habilidade: alvo e nome da criatura são ignorados', async () => {
+      const { id, morgana, veu } = await activeCampaign();
+      const carrasco = await ability(t, 'mascareiro', 'Máscara do Carrasco');
+      const res = await joana
+        .post(`/characters/${veu.id}/abilities/${carrasco}/use`, {
+          rollMode: 'none',
+          targetCharacterId: morgana.id,
+          target: 'o guarda',
+        })
+        .expect(200);
+      const msg = (res.body as { log: Log }).log.message;
+      expect(msg).not.toContain('em Morgana');
+      expect(msg).not.toContain('em o guarda');
+      expect((await charOf(id, morgana.id)).conditions).toEqual([]);
+
+      const reanimar = await ability(t, 'necromante', 'Reanimar');
+      await kaua
+        .post(`/characters/${morgana.id}/abilities/${reanimar}/use`, {
+          rollMode: 'none',
+          summonName: 'Dragão',
+        })
+        .expect(200);
+      const summons = (await charOf(id, morgana.id)).summons;
+      expect(summons).toHaveLength(1);
+      expect(summons[0].name).not.toBe('Dragão');
     });
 
     it('habilidade só funciona com a aventura em andamento', async () => {
@@ -513,11 +540,11 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       const { id, morgana } = await activeCampaign();
       const reanimar = await ability(t, 'necromante', 'Reanimar');
       const url = `/characters/${morgana.id}/abilities/${reanimar}/use`;
-      await kaua
+      await master
         .post(url, { rollMode: 'none', summonName: 'Rato' })
         .expect(200);
       const second = (
-        await kaua
+        await master
           .post(url, { rollMode: 'none', summonName: 'Lobo' })
           .expect(200)
       ).body as { log: Log };
@@ -548,9 +575,12 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
   // ───────────── invocações, condições, inventário ─────────────
 
   describe('extras da ficha', () => {
-    it('invocação: dano pelo mestre e remoção pelo dono, com desfazer', async () => {
+    it('invocação: só o mestre cria, fere e remove, com desfazer', async () => {
       const { id, morgana } = await activeCampaign();
       await kaua
+        .post(`/characters/${morgana.id}/summons`, { name: 'Corvo', hpMax: 5 })
+        .expect(403);
+      await master
         .post(`/characters/${morgana.id}/summons`, { name: 'Corvo', hpMax: 5 })
         .expect(201);
       let ch = await charOf(id, morgana.id);
@@ -560,7 +590,9 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       await master.post(`/summons/${corvo.id}/adjust`, { hp: -2 }).expect(200);
       expect((await charOf(id, morgana.id)).summons[0].hp).toBe(3);
 
-      const removed = (await kaua.del(`/summons/${corvo.id}`).expect(200))
+      await kaua.patch(`/summons/${corvo.id}`, { name: 'X' }).expect(403);
+      await kaua.del(`/summons/${corvo.id}`).expect(403);
+      const removed = (await master.del(`/summons/${corvo.id}`).expect(200))
         .body as { log: Log };
       expect((await charOf(id, morgana.id)).summons).toEqual([]);
 
@@ -571,7 +603,7 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       ]);
     });
 
-    it('condições e inventário', async () => {
+    it('condições e inventário: só o mestre mexe, o jogador só vê', async () => {
       const { id, morgana, veu } = await activeCampaign();
       await master
         .post(`/characters/${veu.id}/conditions`, {
@@ -579,23 +611,36 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
           duration: '3 turnos',
         })
         .expect(201);
-      // jogador não põe condição na ficha de outro
+      // jogador não põe condição em ninguém, nem em si mesmo
       await kaua
+        .post(`/characters/${veu.id}/conditions`, { name: 'X' })
+        .expect(403);
+      await joana
         .post(`/characters/${veu.id}/conditions`, { name: 'X' })
         .expect(403);
 
       const cond = (await charOf(id, veu.id)).conditions[0];
-      await joana.del(`/conditions/${cond.id}`).expect(200);
+      await joana.del(`/conditions/${cond.id}`).expect(403);
+      await master.del(`/conditions/${cond.id}`).expect(200);
       expect((await charOf(id, veu.id)).conditions).toEqual([]);
 
       await kaua
         .post(`/characters/${morgana.id}/items`, { name: 'Tocha', qty: 3 })
+        .expect(403);
+      await master
+        .post(`/characters/${morgana.id}/items`, { name: 'Tocha', qty: 3 })
         .expect(201);
-      const item = (await charOf(id, morgana.id)).inventory[0];
-      await kaua.patch(`/items/${item.id}`, { qty: 1 }).expect(200);
+      // o dono vê o item na ficha
+      const item = (await state(kaua, id)).characters.find(
+        (c) => c.id === morgana.id,
+      )!.inventory[0];
+      expect(item).toMatchObject({ name: 'Tocha', qty: 3 });
+
+      await kaua.patch(`/items/${item.id}`, { qty: 1 }).expect(403);
+      await master.patch(`/items/${item.id}`, { qty: 1 }).expect(200);
       expect((await charOf(id, morgana.id)).inventory[0].qty).toBe(1);
-      await joana.del(`/items/${item.id}`).expect(403);
-      await kaua.del(`/items/${item.id}`).expect(200);
+      await kaua.del(`/items/${item.id}`).expect(403);
+      await master.del(`/items/${item.id}`).expect(200);
       expect((await charOf(id, morgana.id)).inventory).toEqual([]);
     });
 

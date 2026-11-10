@@ -13,10 +13,7 @@ const campaign = useCampaignStore()
 type RollMode = 'auto' | 'manual' | 'none'
 const rollMode = ref<RollMode>('auto')
 const manualRoll = ref<number | null>(null)
-/** id de alguém da party, '__other' (texto livre) ou '__none' (sem alvo) */
-const targetChoice = ref<string>('__none')
-const targetText = ref('')
-const summonName = ref('')
+// O jogador só escolhe a habilidade (e o dado): alvo e efeitos em outros são com o mestre.
 const summonId = ref<string | null>(null)
 const busy = ref(false)
 const error = ref('')
@@ -24,15 +21,6 @@ const error = ref('')
 const hasCrits = computed(() => !!props.ability?.crits?.length)
 const effect = computed(() => props.ability?.effect ?? null)
 const enoughMana = computed(() => (props.ability?.manaCost ?? 0) <= props.character.mana)
-
-const targetOptions = computed(() => [
-  { title: 'Sem alvo específico', value: '__none' },
-  ...(campaign.state?.characters ?? []).map((c) => ({
-    title: c.id === props.character.id ? `${c.name} (você)` : c.name,
-    value: c.id,
-  })),
-  { title: 'Outro (inimigo, NPC…)', value: '__other' },
-])
 
 const summonOptions = computed(() =>
   props.character.summons.map((s) => ({ title: `${s.name} (${s.hp}/${s.hpMax})`, value: s.id })),
@@ -45,9 +33,6 @@ watch(open, (isOpen) => {
   if (!isOpen) return
   rollMode.value = hasCrits.value ? 'auto' : 'none'
   manualRoll.value = null
-  targetChoice.value = '__none'
-  targetText.value = ''
-  summonName.value = ''
   summonId.value = props.character.summons.length === 1 ? (props.character.summons[0]?.id ?? null) : null
   error.value = ''
 })
@@ -70,12 +55,6 @@ async function submit() {
 
   const body: Record<string, unknown> = { rollMode: rollMode.value }
   if (rollMode.value === 'manual') body.roll = Number(manualRoll.value)
-  if (targetChoice.value === '__other') {
-    if (targetText.value.trim()) body.target = targetText.value.trim()
-  } else if (targetChoice.value !== '__none') {
-    body.targetCharacterId = targetChoice.value
-  }
-  if (effect.value === 'SUMMON' && summonName.value.trim()) body.summonName = summonName.value.trim()
   if (effect.value === 'SACRIFICE_SUMMON' && summonId.value) body.summonId = summonId.value
 
   busy.value = true
@@ -137,34 +116,12 @@ async function submit() {
           class="mb-2"
         />
 
-        <div class="section-label mt-3">Alvo</div>
-        <v-select v-model="targetChoice" :items="targetOptions" label="Em quem?" hide-details class="mb-2" />
-        <v-text-field
-          v-if="targetChoice === '__other'"
-          v-model="targetText"
-          label="Descreva o alvo"
-          placeholder="ex.: o guarda da ponte"
-          maxlength="80"
-          hide-details
-          class="mb-2"
-        />
-        <div v-if="effect === 'TARGET_CONDITION'" class="hint">
-          Se o alvo for alguém da party, a condição entra na ficha dele.
+        <div v-if="effect === 'SUMMON' && character.summons.length" class="hint mt-2">
+          {{ character.summons.map((s) => s.name).join(', ') }} pode desaparecer ao invocar outra.
         </div>
-
-        <template v-if="effect === 'SUMMON'">
-          <div class="section-label mt-3">Criatura</div>
-          <v-text-field
-            v-model="summonName"
-            label="Nome da criatura (opcional)"
-            :placeholder="String(ability.effectData?.name ?? 'Invocação')"
-            maxlength="60"
-            hide-details
-          />
-          <div v-if="character.summons.length" class="hint">
-            {{ character.summons.map((s) => s.name).join(', ') }} pode desaparecer ao invocar outra.
-          </div>
-        </template>
+        <div v-if="effect === 'TARGET_CONDITION'" class="hint mt-2">
+          O mestre decide em quem o efeito cai.
+        </div>
 
         <template v-if="effect === 'SACRIFICE_SUMMON' && summonOptions.length > 1">
           <div class="section-label mt-3">Qual criatura sacrificar?</div>

@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import QuickFormDialog from '@/components/QuickFormDialog.vue'
 import StatBar from '@/components/StatBar.vue'
 import UseAbilityDialog from '@/components/UseAbilityDialog.vue'
 import { api } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
 import { useNotifyStore } from '@/stores/notify'
 import type { Ability, ActionResult, Character, CharacterClass } from '@/types/api'
-import type { QuickField } from '@/types/ui'
 
 /** Ficha do próprio jogador durante a aventura. */
 const props = defineProps<{ character: Character; cls: CharacterClass }>()
@@ -29,54 +27,7 @@ function onUsed(log: ActionResult['log']) {
   if (log) notify.success(log.message)
 }
 
-// ── formulários rápidos ──
-type FormKind = 'item' | 'condition' | 'summon'
-const formOpen = ref(false)
-const formKind = ref<FormKind>('item')
-const FORMS: Record<FormKind, { title: string; fields: QuickField[] }> = {
-  item: {
-    title: 'Novo item',
-    fields: [
-      { key: 'name', label: 'Item', required: true, maxlength: 80 },
-      { key: 'qty', label: 'Quantidade', type: 'number', min: 1, max: 9999 },
-      { key: 'description', label: 'Descrição', maxlength: 300 },
-    ],
-  },
-  condition: {
-    title: 'Nova condição',
-    fields: [
-      { key: 'name', label: 'Condição', required: true, maxlength: 60, hint: 'ex.: Envenenado, Escondido' },
-      { key: 'duration', label: 'Duração', maxlength: 60, hint: 'ex.: 2 turnos' },
-      { key: 'description', label: 'Detalhes', maxlength: 300 },
-    ],
-  },
-  summon: {
-    title: 'Nova criatura',
-    fields: [
-      { key: 'name', label: 'Nome', required: true, maxlength: 60 },
-      { key: 'hpMax', label: 'Vida', type: 'number', required: true, min: 1, max: 9999 },
-    ],
-  },
-}
-const URLS: Record<FormKind, string> = { item: 'items', condition: 'conditions', summon: 'summons' }
-
-function openForm(kind: FormKind) {
-  formKind.value = kind
-  formOpen.value = true
-}
-
-async function submitForm(values: Record<string, string | number>) {
-  const ok = await campaign.act(() =>
-    api.post<ActionResult>(`/characters/${props.character.id}/${URLS[formKind.value]}`, values),
-  )
-  if (ok) formOpen.value = false
-}
-
-const removeCondition = (id: string) => campaign.act(() => api.delete<ActionResult>(`/conditions/${id}`))
-const removeSummon = (id: string) => campaign.act(() => api.delete<ActionResult>(`/summons/${id}`))
-const removeItem = (id: string) => campaign.act(() => api.delete<ActionResult>(`/items/${id}`))
-const setQty = (id: string, qty: number) =>
-  qty <= 0 ? removeItem(id) : campaign.act(() => api.patch<ActionResult>(`/items/${id}`, { qty }))
+// Invocações, condições e inventário são controlados pelo mestre: aqui só se vê.
 
 // ── anotações ──
 const notes = ref(props.character.notes)
@@ -130,8 +81,7 @@ async function saveNotes() {
           :key="c.id"
           color="warning"
           variant="tonal"
-          closable
-          @click:close="removeCondition(c.id)"
+          :title="[c.description, c.source && `por ${c.source}`].filter(Boolean).join(' · ')"
         >
           {{ c.name }}<template v-if="c.duration"> ({{ c.duration }})</template>
         </v-chip>
@@ -170,50 +120,34 @@ async function saveNotes() {
     </section>
 
     <!-- invocações -->
-    <section class="block">
-      <div class="block-head">
-        <h3>Invocações</h3>
-        <v-btn size="small" variant="text" prepend-icon="mdi-plus" @click="openForm('summon')">Adicionar</v-btn>
-      </div>
-      <div v-if="!character.summons.length" class="empty">Nenhuma criatura acompanhando.</div>
+    <section v-if="character.summons.length" class="block">
+      <h3>Invocações</h3>
       <div v-for="s in character.summons" :key="s.id" class="row-item">
         <v-icon icon="mdi-skull" />
         <div class="row-main">
           <div>{{ s.name }}</div>
           <StatBar label="Vida" :value="s.hp" :max="s.hpMax" color="error" size="sm" />
         </div>
-        <v-btn icon="mdi-close" size="small" variant="text" :aria-label="`Dispensar ${s.name}`" @click="removeSummon(s.id)" />
       </div>
     </section>
 
-    <!-- inventário -->
+    <!-- inventário (só leitura: quem dá e tira itens é o mestre) -->
     <section class="block">
-      <div class="block-head">
-        <h3>Inventário</h3>
-        <v-btn size="small" variant="text" prepend-icon="mdi-plus" @click="openForm('item')">Adicionar</v-btn>
-      </div>
+      <h3>Inventário</h3>
       <div v-if="!character.inventory.length" class="empty">Mochila vazia.</div>
       <div v-for="item in character.inventory" :key="item.id" class="row-item">
+        <v-icon icon="mdi-bag-personal-outline" />
         <div class="row-main">
           <div>{{ item.name }}</div>
           <div v-if="item.description" class="row-desc">{{ item.description }}</div>
         </div>
-        <div class="qty">
-          <v-btn icon="mdi-minus" size="x-small" variant="tonal" :aria-label="`Menos ${item.name}`" @click="setQty(item.id, item.qty - 1)" />
-          <span class="qty-num">{{ item.qty }}</span>
-          <v-btn icon="mdi-plus" size="x-small" variant="tonal" :aria-label="`Mais ${item.name}`" @click="setQty(item.id, item.qty + 1)" />
-        </div>
+        <span class="qty-num" :title="`${item.qty} unidade(s)`">×{{ item.qty }}</span>
       </div>
     </section>
 
-    <!-- condição manual + anotações -->
+    <!-- anotações -->
     <section class="block">
-      <div class="block-head">
-        <h3>Anotações</h3>
-        <v-btn size="small" variant="text" prepend-icon="mdi-alert-decagram" @click="openForm('condition')">
-          Condição
-        </v-btn>
-      </div>
+      <h3>Anotações</h3>
       <v-textarea v-model="notes" rows="3" auto-grow placeholder="Pistas, nomes, planos…" hide-details />
       <div class="notes-actions">
         <v-btn v-if="notesDirty" color="secondary" variant="tonal" size="small" :loading="savingNotes" @click="saveNotes">
@@ -223,13 +157,6 @@ async function saveNotes() {
     </section>
 
     <UseAbilityDialog v-model="abilityOpen" :character="character" :ability="selectedAbility" @used="onUsed" />
-    <QuickFormDialog
-      v-model="formOpen"
-      :title="FORMS[formKind].title"
-      :fields="FORMS[formKind].fields"
-      submit-label="Adicionar"
-      @submit="submitForm"
-    />
   </div>
 </template>
 
