@@ -192,4 +192,86 @@ describe('Auth e usuários (e2e)', () => {
       .expect(401);
     await login('kaua', 'nova-senha');
   });
+
+  it('mestre troca o login de alguém; repetido dá 409', async () => {
+    const token = await login('matheus');
+    const kaua = db.users.find((u) => u.username === 'kaua')!;
+    const http = request(app.getHttpServer());
+
+    const res = await http
+      .patch(`/api/users/${kaua.id}`)
+      .auth(token, { type: 'bearer' })
+      .send({ username: '  Kaua.Novo ' })
+      .expect(200);
+    expect(res.body).toMatchObject({ username: 'kaua.novo' });
+    await login('kaua.novo');
+
+    await http
+      .patch(`/api/users/${kaua.id}`)
+      .auth(token, { type: 'bearer' })
+      .send({ username: 'matheus' })
+      .expect(409);
+    await http
+      .patch(`/api/users/${kaua.id}`)
+      .auth(token, { type: 'bearer' })
+      .send({ username: 'a b' })
+      .expect(400);
+  });
+
+  it('mestre exclui um login, que deixa de entrar', async () => {
+    const token = await login('matheus');
+    const playerToken = await login('kaua');
+    const kaua = db.users.find((u) => u.username === 'kaua')!;
+    db.campaigns.push({ id: 'c1', masterId: 'outro', status: 'ENDED' });
+    db.characters.push({ id: 'p1', userId: kaua.id, campaignId: 'c1' });
+
+    await request(app.getHttpServer())
+      .delete(`/api/users/${kaua.id}`)
+      .auth(token, { type: 'bearer' })
+      .expect(204);
+
+    expect(db.users.some((u) => u.id === kaua.id)).toBe(false);
+    expect(db.characters).toHaveLength(0);
+    await request(app.getHttpServer())
+      .get('/api/auth/me')
+      .auth(playerToken, { type: 'bearer' })
+      .expect(401);
+  });
+
+  it('exclusão barrada: a si mesmo, mestre de campanha ou em aventura ativa', async () => {
+    const token = await login('matheus');
+    const me = db.users.find((u) => u.username === 'matheus')!;
+    const kaua = db.users.find((u) => u.username === 'kaua')!;
+    const inativo = db.users.find((u) => u.username === 'inativo')!;
+    const http = request(app.getHttpServer());
+
+    await http
+      .delete(`/api/users/${me.id}`)
+      .auth(token, { type: 'bearer' })
+      .expect(400);
+
+    db.campaigns.push({ id: 'c1', masterId: inativo.id, status: 'DRAFT' });
+    await http
+      .delete(`/api/users/${inativo.id}`)
+      .auth(token, { type: 'bearer' })
+      .expect(409);
+
+    db.campaigns.push({ id: 'c2', masterId: me.id, status: 'ACTIVE' });
+    db.characters.push({ id: 'p1', userId: kaua.id, campaignId: 'c2' });
+    await http
+      .delete(`/api/users/${kaua.id}`)
+      .auth(token, { type: 'bearer' })
+      .expect(409);
+
+    expect(db.users).toHaveLength(3);
+  });
+
+  it('jogador não exclui ninguém', async () => {
+    const token = await login('kaua');
+    const inativo = db.users.find((u) => u.username === 'inativo')!;
+    await request(app.getHttpServer())
+      .delete(`/api/users/${inativo.id}`)
+      .auth(token, { type: 'bearer' })
+      .expect(403);
+  });
 });

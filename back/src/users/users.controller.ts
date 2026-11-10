@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -35,5 +37,14 @@ export class UsersController {
     @CurrentUser() actor: AuthUser,
   ) {
     return this.users.update(id, dto, actor.id);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    await this.users.remove(id, actor.id);
   }
 }

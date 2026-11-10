@@ -64,7 +64,9 @@ watch(box, (el) => {
       class="entry"
       :class="{ reverted: !!entry.revertedAt, crit: isCrit(entry), note: entry.type === 'NOTE' && !entry.characterId }"
     >
-      <v-icon :icon="ICON[entry.type].icon" :color="ICON[entry.type].color" size="small" class="entry-icon" />
+      <span class="medal">
+        <v-icon :icon="ICON[entry.type].icon" :color="ICON[entry.type].color" size="16" />
+      </span>
       <div class="entry-body">
         <div class="entry-msg">{{ entry.message }}</div>
         <div class="entry-meta">
@@ -103,12 +105,30 @@ watch(box, (el) => {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 7px 6px;
-  border-bottom: 1px solid rgba(201, 162, 39, 0.08);
+  padding: 8px 6px;
+  border-bottom: 1px solid rgba(212, 160, 76, 0.09);
+  animation: ink-in 0.45s ease-out both;
 }
 
-.entry-icon {
-  margin-top: 3px;
+/* cada entrada nova "escreve" no diário */
+@keyframes ink-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+    filter: blur(2px);
+  }
+}
+
+.medal {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(212, 160, 76, 0.35);
+  background: radial-gradient(circle at 35% 30%, #2c2236, #0e0912);
+  box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.8);
 }
 
 .entry-body {
@@ -132,8 +152,18 @@ watch(box, (el) => {
 }
 
 .crit {
-  background: rgba(201, 162, 39, 0.1);
-  border-radius: 6px;
+  background: linear-gradient(90deg, rgba(212, 160, 76, 0.18), rgba(212, 160, 76, 0.03));
+  border-left: 2px solid var(--gold);
+  border-radius: 4px;
+}
+
+.crit .medal {
+  border-color: var(--gold-bright);
+  box-shadow: 0 0 12px rgba(243, 211, 145, 0.6);
+}
+
+.crit .entry-msg {
+  color: var(--gold-bright);
 }
 
 .note .entry-msg {

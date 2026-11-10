@@ -737,4 +737,47 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       await changed;
     });
   });
+
+  // ───────────── exclusão de usuário ─────────────
+
+  describe('exclusão de usuário', () => {
+    it('barra jogador em aventura ativa; depois de encerrada, apaga personagem e mantém o diário', async () => {
+      const { id, morgana } = await activeCampaign();
+      await kaua
+        .post(`/campaigns/${id}/roll`, { sides: 20, value: 12 })
+        .expect(201);
+      await master.del(`/users/${kauaId}`).expect(409);
+
+      await master.post(`/campaigns/${id}/end`).expect(201);
+      const logsBefore = await t.prisma.logEntry.count({
+        where: { campaignId: id },
+      });
+      await master.del(`/users/${kauaId}`).expect(204);
+
+      expect(await t.prisma.user.findUnique({ where: { id: kauaId } })).toBe(
+        null,
+      );
+      expect(
+        await t.prisma.character.findUnique({ where: { id: morgana.id } }),
+      ).toBe(null);
+      expect(
+        await t.prisma.campaignPlayer.count({ where: { userId: kauaId } }),
+      ).toBe(0);
+      expect(await t.prisma.logEntry.count({ where: { campaignId: id } })).toBe(
+        logsBefore,
+      );
+    });
+
+    it('barra quem é mestre de campanha', async () => {
+      await master.post('/campaigns', { name: 'A Cripta' }).expect(201);
+      const other = await createUser(t.prisma, 'outro', Role.MASTER);
+      const outro = await as(t, 'outro');
+      const matheus = await t.prisma.user.findUniqueOrThrow({
+        where: { username: 'matheus' },
+      });
+      await outro.del(`/users/${matheus.id}`).expect(409);
+      await outro.del(`/users/${joanaId}`).expect(204);
+      await master.del(`/users/${other.id}`).expect(204);
+    });
+  });
 });

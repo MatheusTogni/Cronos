@@ -23,8 +23,9 @@ const emit = defineEmits<{ removeCondition: [id: string] }>()
     color="surface"
     :style="{ '--accent': cls?.color ?? 'var(--crimson)' }"
   >
+    <div class="aura" aria-hidden="true" />
     <div class="head">
-      <v-avatar size="44" rounded="lg" class="avatar">
+      <v-avatar size="48" class="avatar">
         <v-img v-if="cls" :src="cls.artFile" cover position="top" :alt="cls.name" />
       </v-avatar>
       <div class="who">
@@ -34,7 +35,9 @@ const emit = defineEmits<{ removeCondition: [id: string] }>()
           <template v-if="playerName"> · {{ playerName }}</template>
         </div>
       </div>
-      <v-chip v-if="character.hp === 0" color="error" size="small" variant="flat">Caído</v-chip>
+      <v-chip v-if="character.hp === 0" color="error" size="small" variant="flat" prepend-icon="mdi-skull">
+        Caído
+      </v-chip>
     </div>
 
     <div class="bars">
@@ -81,22 +84,50 @@ const emit = defineEmits<{ removeCondition: [id: string] }>()
 
 <style scoped>
 .char-card {
-  padding: 12px 14px;
+  padding: 14px 16px;
   border-left: 3px solid var(--accent) !important;
 }
 
+/* o conteúdo fica acima da aura */
+.char-card > :not(.aura) {
+  position: relative;
+}
+
+/* brilho da cor da classe no canto do card */
+.aura {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 70% 60% at 0% 0%,
+    color-mix(in srgb, var(--accent) 22%, transparent),
+    transparent 70%
+  );
+}
+
 .highlight {
-  box-shadow: 0 0 0 1px var(--accent);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 22px color-mix(in srgb, var(--accent) 45%, transparent) !important;
 }
 
 .down {
-  opacity: 0.75;
+  filter: grayscale(0.75) brightness(0.8);
 }
 
 .head {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+}
+
+.avatar {
+  border: 2px solid var(--accent);
+  box-shadow:
+    0 0 0 2px #0b0810,
+    0 0 0 3px rgba(212, 160, 76, 0.55),
+    0 0 14px color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
 .who {
@@ -106,7 +137,9 @@ const emit = defineEmits<{ removeCondition: [id: string] }>()
 
 .name {
   font-weight: 700;
-  font-size: 1.05rem;
+  font-size: 1.1rem;
+  color: var(--gold-bright);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -118,6 +151,7 @@ const emit = defineEmits<{ removeCondition: [id: string] }>()
 }
 
 .bars {
+  position: relative;
   display: grid;
   gap: 8px;
   margin-top: 10px;

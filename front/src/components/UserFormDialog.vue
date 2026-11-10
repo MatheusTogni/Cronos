@@ -56,7 +56,7 @@ const rules = {
 async function save() {
   const f = form.value
   const invalid = [
-    !isEdit.value && rules.username(f.username),
+    rules.username(f.username),
     rules.required(f.displayName),
     rules.password(f.password),
   ].find((r) => typeof r === 'string')
@@ -67,21 +67,27 @@ async function save() {
 
   saving.value = true
   error.value = ''
+  const username = f.username.trim().toLowerCase()
   try {
     const { data } = isEdit.value
       ? await api.patch<UserRow>(`/users/${props.user!.id}`, {
+          ...(username !== props.user!.username ? { username } : {}),
           displayName: f.displayName,
           role: f.role,
           active: f.active,
           ...(f.password ? { password: f.password } : {}),
         })
       : await api.post<UserRow>('/users', {
-          username: f.username,
+          username,
           displayName: f.displayName,
           password: f.password,
           role: f.role,
         })
     notify.success(isEdit.value ? 'Login atualizado' : `Login "${data.username}" criado`)
+    // mantém o cabeçalho em dia se o mestre editou a si mesmo
+    if (isSelf.value && auth.user) {
+      auth.user = { ...auth.user, username: data.username, displayName: data.displayName }
+    }
     emit('saved', data)
     open.value = false
   } catch (e) {
@@ -104,10 +110,13 @@ async function save() {
           <v-text-field
             v-model="form.username"
             label="Login"
-            hint="É o que a pessoa digita para entrar. Ex.: kaua"
+            :hint="
+              isEdit
+                ? 'Se mudar, a pessoa passa a entrar com o login novo'
+                : 'É o que a pessoa digita para entrar. Ex.: kaua'
+            "
             persistent-hint
-            :disabled="isEdit"
-            :rules="isEdit ? [] : [rules.username]"
+            :rules="[rules.username]"
             autocapitalize="off"
             spellcheck="false"
             class="mb-3"

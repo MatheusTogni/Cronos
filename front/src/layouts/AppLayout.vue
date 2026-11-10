@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { homeFor, useAuthStore } from '@/stores/auth'
 import { useRealtimeStore } from '@/stores/realtime'
 import { ROLE_LABEL } from '@/types/api'
 
@@ -35,33 +35,38 @@ function logout() {
 </script>
 
 <template>
-  <v-app-bar flat color="surface" class="app-bar" density="comfortable">
+  <v-app-bar flat class="app-bar" density="comfortable">
     <v-app-bar-title>
-      <span class="title-font brand">Cronos</span>
+      <router-link :to="auth.user ? homeFor(auth.user.role) : '/'" class="brand">
+        <img src="/pwa-64x64.png" alt="" class="brand-icon" />
+        <span class="brand-font gold-text brand-name">Cronos</span>
+      </router-link>
     </v-app-bar-title>
 
     <template #append>
       <v-menu location="bottom end">
         <template #activator="{ props }">
           <v-btn v-bind="props" variant="text" class="user-btn">
-            <v-icon :icon="auth.isMaster ? 'mdi-crown' : 'mdi-sword'" start />
+            <span class="sigil" :class="{ master: auth.isMaster }">
+              <v-icon :icon="auth.isMaster ? 'mdi-crown' : 'mdi-sword'" size="16" />
+            </span>
             <span class="user-name">{{ auth.user?.displayName }}</span>
             <v-icon icon="mdi-chevron-down" end />
           </v-btn>
         </template>
-        <v-list density="compact" min-width="200">
+        <v-list density="compact" min-width="220">
           <v-list-item
             :title="auth.user?.displayName"
             :subtitle="`${auth.user?.username} · ${auth.user ? ROLE_LABEL[auth.user.role] : ''}`"
           />
           <v-divider />
-          <v-list-item prepend-icon="mdi-logout" title="Sair" @click="logout" />
+          <v-list-item prepend-icon="mdi-door-open" title="Sair da mesa" @click="logout" />
         </v-list>
       </v-menu>
     </template>
 
     <template #extension>
-      <v-tabs color="secondary" show-arrows>
+      <v-tabs color="secondary" slider-color="secondary" show-arrows class="nav-tabs">
         <v-tab
           v-for="link in links"
           :key="link.to"
@@ -76,28 +81,106 @@ function logout() {
   </v-app-bar>
 
   <v-main>
-    <router-view />
+    <router-view v-slot="{ Component }">
+      <transition name="page" mode="out-in">
+        <component :is="Component" />
+      </transition>
+    </router-view>
   </v-main>
 </template>
 
 <style scoped>
 .app-bar {
-  border-bottom: 1px solid var(--border-soft);
+  background:
+    linear-gradient(180deg, rgba(36, 24, 46, 0.96) 0%, rgba(14, 9, 18, 0.96) 100%) !important;
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid rgba(212, 160, 76, 0.45);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.8),
+    0 8px 24px rgba(0, 0, 0, 0.55) !important;
+}
+
+/* ornamento central na borda de baixo da barra */
+.app-bar::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  width: 80px;
+  height: 14px;
+  transform: translateX(-50%);
+  background: var(--flourish) center / contain no-repeat;
+  pointer-events: none;
 }
 
 .brand {
-  color: var(--gold);
-  font-size: 1.3rem;
-  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+
+.brand-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(212, 160, 76, 0.6);
+  box-shadow: 0 0 12px rgba(212, 160, 76, 0.3);
+}
+
+.brand-name {
+  font-size: 1.45rem;
+  font-weight: 900;
 }
 
 .user-btn {
   text-transform: none;
 }
 
+.sigil {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 8px;
+  border-radius: 50%;
+  border: 1px solid rgba(212, 160, 76, 0.55);
+  background: radial-gradient(circle, #2a1f33, #120c17);
+  color: #cfc3b0;
+}
+
+.sigil.master {
+  color: var(--gold-bright);
+  box-shadow: 0 0 10px rgba(212, 160, 76, 0.4);
+}
+
+.nav-tabs {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.page-enter-active,
+.page-leave-active {
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease;
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-leave-to {
+  opacity: 0;
+}
+
 @media (max-width: 480px) {
   .user-name {
     display: none;
+  }
+
+  .sigil {
+    margin-right: 0;
   }
 }
 </style>

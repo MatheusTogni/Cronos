@@ -50,6 +50,31 @@ function onSaved(saved: UserRow) {
   else users.value.push(saved)
 }
 
+// exclusão com confirmação em dois toques, como nas imagens
+const confirmDelete = ref<string | null>(null)
+const deleting = ref<string | null>(null)
+let confirmTimer: ReturnType<typeof setTimeout> | undefined
+
+async function remove(user: UserRow) {
+  if (confirmDelete.value !== user.id) {
+    confirmDelete.value = user.id
+    clearTimeout(confirmTimer)
+    confirmTimer = setTimeout(() => (confirmDelete.value = null), 4000)
+    return
+  }
+  confirmDelete.value = null
+  deleting.value = user.id
+  try {
+    await api.delete(`/users/${user.id}`)
+    users.value = users.value.filter((u) => u.id !== user.id)
+    notify.success(`Login "${user.username}" excluído`)
+  } catch (e) {
+    notify.error(errorMessage(e))
+  } finally {
+    deleting.value = null
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -113,6 +138,19 @@ onMounted(load)
             size="small"
             :aria-label="`Editar ${item.displayName}`"
             @click="openEdit(item)"
+          />
+          <v-btn
+            v-if="item.id !== auth.user?.id"
+            :icon="confirmDelete === item.id ? 'mdi-delete-alert' : 'mdi-delete'"
+            :color="confirmDelete === item.id ? 'error' : undefined"
+            :variant="confirmDelete === item.id ? 'flat' : 'text'"
+            size="small"
+            :loading="deleting === item.id"
+            :aria-label="
+              confirmDelete === item.id ? 'Toque de novo para excluir' : `Excluir ${item.displayName}`
+            "
+            :title="confirmDelete === item.id ? 'Toque de novo para excluir' : 'Excluir'"
+            @click="remove(item)"
           />
         </template>
       </v-data-table>

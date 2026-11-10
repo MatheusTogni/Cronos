@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
+import ArcaneBackdrop from '@/components/ArcaneBackdrop.vue'
 import { useNotifyStore } from '@/stores/notify'
 
 const notify = useNotifyStore()
@@ -8,6 +9,8 @@ const { visible, text, kind } = storeToRefs(notify)
 
 <template>
   <v-app>
+    <ArcaneBackdrop />
+
     <router-view />
 
     <v-snackbar

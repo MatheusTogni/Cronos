@@ -3,7 +3,7 @@ import 'vuetify/styles'
 import { createVuetify } from 'vuetify'
 import { pt } from 'vuetify/locale'
 
-/** Tema escuro único, no clima das fichas: preto, carmim e dourado. */
+/** Tema escuro único, no clima do ícone: preto-violeta, bronze/ouro e carmim. */
 export default createVuetify({
   locale: { locale: 'pt', messages: { pt } },
   theme: {
@@ -12,28 +12,35 @@ export default createVuetify({
       cronos: {
         dark: true,
         colors: {
-          background: '#0e0b0d',
-          surface: '#18131a',
-          'surface-bright': '#241c26',
-          'surface-variant': '#2c2330',
-          'on-surface-variant': '#d8cfc4',
-          primary: '#b8322a',
-          secondary: '#c9a227',
-          error: '#e5534b',
-          info: '#4a90d9',
+          background: '#0b0810',
+          surface: '#16101c',
+          'surface-bright': '#231a2c',
+          'surface-light': '#1d1524',
+          'surface-variant': '#2a2034',
+          'on-surface-variant': '#d8cdb8',
+          primary: '#a8322b',
+          secondary: '#d4a04c',
+          arcane: '#7a52b3',
+          error: '#d9463d',
+          info: '#4f86d6',
           success: '#4caf7a',
           warning: '#e0a43a',
-          'on-background': '#ece4d8',
-          'on-surface': '#ece4d8',
+          'on-background': '#eadfca',
+          'on-surface': '#eadfca',
+        },
+        variables: {
+          // divisórias e bordas do Vuetify em bronze discreto
+          'border-color': '#d4a04c',
+          'border-opacity': 0.16,
         },
       },
     },
   },
   defaults: {
-    VTextField: { variant: 'outlined', density: 'comfortable' },
-    VSelect: { variant: 'outlined', density: 'comfortable' },
-    VTextarea: { variant: 'outlined', density: 'comfortable' },
-    VBtn: { rounded: 'lg' },
-    VCard: { rounded: 'lg' },
+    VTextField: { variant: 'outlined', density: 'comfortable', color: 'secondary' },
+    VSelect: { variant: 'outlined', density: 'comfortable', color: 'secondary' },
+    VTextarea: { variant: 'outlined', density: 'comfortable', color: 'secondary' },
+    VBtn: { rounded: 'sm' },
+    VCard: { rounded: 'sm' },
   },
 })

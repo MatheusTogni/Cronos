@@ -3,7 +3,7 @@
  * Permite subir o app Nest inteiro nos testes sem precisar de Postgres.
  */
 import { randomUUID } from 'node:crypto';
-import { Prisma, Role, User } from '@prisma/client';
+import { CampaignStatus, Prisma, Role, User } from '@prisma/client';
 
 type Select = Record<string, boolean> | undefined;
 
@@ -70,12 +70,66 @@ export class FakePrisma {
       select?: Select;
     }) => {
       const user = this.users.find((u) => u.id === where.id)!;
+      if (
+        data.username &&
+        this.users.some((u) => u.id !== user.id && u.username === data.username)
+      ) {
+        return Promise.reject(
+          new Prisma.PrismaClientKnownRequestError('dup', {
+            code: 'P2002',
+            clientVersion: 'test',
+          }),
+        );
+      }
       for (const [k, v] of Object.entries(data)) {
         if (v !== undefined) (user as Record<string, unknown>)[k] = v;
       }
       return Promise.resolve(pick(user, select));
     },
+
+    delete: ({ where }: { where: { id: string } }) => {
+      const i = this.users.findIndex((u) => u.id === where.id);
+      const [user] = this.users.splice(i, 1);
+      this.characters = this.characters.filter((c) => c.userId !== where.id);
+      return Promise.resolve(user);
+    },
   };
+
+  /** Só o necessário para as regras de exclusão de usuário. */
+  campaigns: { id: string; masterId: string; status: CampaignStatus }[] = [];
+  characters: { id: string; userId: string; campaignId: string }[] = [];
+
+  campaign = {
+    count: ({ where }: { where: { masterId: string } }) =>
+      Promise.resolve(
+        this.campaigns.filter((c) => c.masterId === where.masterId).length,
+      ),
+  };
+
+  character = {
+    count: ({
+      where,
+    }: {
+      where: { userId: string; campaign: { status: CampaignStatus } };
+    }) =>
+      Promise.resolve(
+        this.characters.filter(
+          (ch) =>
+            ch.userId === where.userId &&
+            this.campaigns.find((c) => c.id === ch.campaignId)?.status ===
+              where.campaign.status,
+        ).length,
+      ),
+    deleteMany: ({ where }: { where: { userId: string } }) => {
+      const before = this.characters.length;
+      this.characters = this.characters.filter(
+        (c) => c.userId !== where.userId,
+      );
+      return Promise.resolve({ count: before - this.characters.length });
+    },
+  };
+
+  $transaction = <T>(run: (tx: this) => Promise<T>) => run(this);
 
   characterClass = {
     findMany: () => Promise.resolve([{ id: 'necromante', abilities: [] }]),

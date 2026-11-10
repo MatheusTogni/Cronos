@@ -1,43 +1,97 @@
+/*
+ * Visual "grimório": bronze e ouro sobre preto-violeta, no clima do ícone
+ * (ampulheta, névoa roxa, estrelas). Tudo em CSS/SVG inline — nada de imagem
+ * externa para carregar.
+ */
 :root {
+  --font-brand: 'Cinzel Decorative', 'Cinzel', Georgia, serif;
   --font-title: 'Cinzel', 'Trajan Pro', Georgia, serif;
   --font-body: 'EB Garamond', Garamond, Georgia, serif;
-  --gold: #c9a227;
-  --crimson: #b8322a;
-  --border-soft: rgba(201, 162, 39, 0.18);
+
+  --ink: #0b0810;
+  --ink-2: #120c17;
+  --gold: #d4a04c;
+  --gold-bright: #f3d391;
+  --gold-deep: #8a5a26;
+  --crimson: #a8322b;
+  --arcane: #5b3a86;
+  --parchment: #eadfca;
+  --border-soft: rgba(212, 160, 76, 0.22);
+  --border-strong: rgba(212, 160, 76, 0.5);
+
+  --gold-text: linear-gradient(180deg, #fbe7b4 0%, #e3b665 45%, #b57a35 75%, #e9c27a 100%);
+
+  /* Cantoneiras de filigrana (uma por canto) */
+  --corner-tl: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23d4a04c' stroke-width='1.2'><path d='M1.5 22V8.5C1.5 4.6 4.6 1.5 8.5 1.5H22'/><path d='M5 14V9.5C5 7 7 5 9.5 5H14' opacity='.55'/><path d='M9 6.8L11.2 9L9 11.2L6.8 9Z' fill='%23d4a04c' stroke='none'/></svg>");
+  --corner-tr: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23d4a04c' stroke-width='1.2'><g transform='translate(24 0) scale(-1 1)'><path d='M1.5 22V8.5C1.5 4.6 4.6 1.5 8.5 1.5H22'/><path d='M5 14V9.5C5 7 7 5 9.5 5H14' opacity='.55'/><path d='M9 6.8L11.2 9L9 11.2L6.8 9Z' fill='%23d4a04c' stroke='none'/></g></svg>");
+  --corner-bl: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23d4a04c' stroke-width='1.2'><g transform='translate(0 24) scale(1 -1)'><path d='M1.5 22V8.5C1.5 4.6 4.6 1.5 8.5 1.5H22'/><path d='M5 14V9.5C5 7 7 5 9.5 5H14' opacity='.55'/><path d='M9 6.8L11.2 9L9 11.2L6.8 9Z' fill='%23d4a04c' stroke='none'/></g></svg>");
+  --corner-br: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23d4a04c' stroke-width='1.2'><g transform='translate(24 24) scale(-1 -1)'><path d='M1.5 22V8.5C1.5 4.6 4.6 1.5 8.5 1.5H22'/><path d='M5 14V9.5C5 7 7 5 9.5 5H14' opacity='.55'/><path d='M9 6.8L11.2 9L9 11.2L6.8 9Z' fill='%23d4a04c' stroke='none'/></g></svg>");
+
+  /* Losango central das divisórias */
+  --flourish: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 14'><g fill='%23d4a04c'><path d='M40 0L47 7L40 14L33 7Z'/><path d='M40 3.5L43.5 7L40 10.5L36.5 7Z' fill='%230b0810'/><circle cx='26' cy='7' r='1.6'/><circle cx='54' cy='7' r='1.6'/><path d='M18 7L22 5L22 9Z'/><path d='M62 7L58 5L58 9Z'/></g></svg>");
 }
 
 html,
 body {
-  background: #0e0b0d;
+  background: var(--ink);
+}
+
+::selection {
+  background: rgba(212, 160, 76, 0.35);
+  color: #fff;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(212, 160, 76, 0.35) transparent;
 }
 
 .v-application {
   font-family: var(--font-body);
   font-size: 1.05rem;
-  /* textura discreta de pergaminho escuro */
-  background:
-    radial-gradient(ellipse at top, rgba(184, 50, 42, 0.08), transparent 60%),
-    #0e0b0d !important;
+  background: var(--ink) !important;
 }
 
-/* Vuetify usa a fonte do tema em botões e campos; mantém a serifada em tudo */
-.v-application .v-btn,
+/* o conteúdo fica acima do fundo animado */
+.v-application .v-main {
+  position: relative;
+  z-index: 1;
+}
+
+/* Vuetify usa a fonte do tema em campos e listas; mantém a serifada */
 .v-application .v-field,
 .v-application .v-label,
 .v-application .v-list-item-title,
-.v-application .v-table {
+.v-application .v-table,
+.v-application .v-chip {
   font-family: var(--font-body);
 }
+
+/* ───────────── Tipografia ───────────── */
 
 .title-font {
   font-family: var(--font-title);
   letter-spacing: 0.04em;
 }
 
+.brand-font {
+  font-family: var(--font-brand);
+  letter-spacing: 0.06em;
+}
+
+.gold-text {
+  background: var(--gold-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ───────────── Página ───────────── */
+
 .page {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 24px 16px 48px;
+  padding: 28px 16px 56px;
 }
 
 .page-header {
@@ -45,15 +99,70 @@ body {
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .page-header h1 {
   font-family: var(--font-title);
-  font-size: 1.6rem;
+  font-size: 1.75rem;
   font-weight: 700;
+  letter-spacing: 0.08em;
   margin: 0;
   flex: 1 1 auto;
+  background: var(--gold-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.7));
+}
+
+/* divisória ornamental embaixo do título */
+.page-header::after {
+  content: '';
+  flex-basis: 100%;
+  height: 14px;
+  background:
+    var(--flourish) center / 80px 14px no-repeat,
+    linear-gradient(90deg, transparent, rgba(212, 160, 76, 0.55) 15%, rgba(212, 160, 76, 0.55) 85%, transparent)
+      center / 100% 1px no-repeat;
+  opacity: 0.9;
+}
+
+.ornament-divider {
+  height: 14px;
+  margin: 16px 0;
+  background:
+    var(--flourish) center / 80px 14px no-repeat,
+    linear-gradient(90deg, transparent, rgba(212, 160, 76, 0.45) 20%, rgba(212, 160, 76, 0.45) 80%, transparent)
+      center / 100% 1px no-repeat;
+}
+
+/* títulos de seção dentro das telas (Dados, Log da mesa, Lobbies…) */
+.side-title,
+h2.section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-shadow: 0 0 10px rgba(212, 160, 76, 0.35);
+}
+
+.side-title::before,
+h2.section::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  background: var(--gold);
+  transform: rotate(45deg);
+  box-shadow: 0 0 6px rgba(243, 211, 145, 0.8);
+}
+
+.side-title::after,
+h2.section::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(212, 160, 76, 0.5), transparent);
 }
 
 /* Texto vindo do banco com quebras de linha (descrições das classes) */
@@ -61,6 +170,194 @@ body {
   white-space: pre-line;
 }
 
+/* ───────────── Moldura dos cards ───────────── */
+
 .card-frame {
+  border: 1px solid rgba(212, 160, 76, 0.3);
+  background-image:
+    var(--corner-tl), var(--corner-tr), var(--corner-bl), var(--corner-br),
+    radial-gradient(ellipse at 50% -20%, rgba(91, 58, 134, 0.22), transparent 65%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 35%, rgba(0, 0, 0, 0.25));
+  background-repeat: no-repeat;
+  background-position:
+    top 4px left 4px,
+    top 4px right 4px,
+    bottom 4px left 4px,
+    bottom 4px right 4px,
+    0 0,
+    0 0;
+  background-size:
+    22px 22px,
+    22px 22px,
+    22px 22px,
+    22px 22px,
+    100% 100%,
+    100% 100%;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.55),
+    inset 0 0 40px rgba(0, 0, 0, 0.45),
+    0 10px 30px rgba(0, 0, 0, 0.5) !important;
+  transition:
+    border-color 0.25s,
+    box-shadow 0.25s,
+    transform 0.25s;
+}
+
+.card-frame.v-card--link:hover,
+.card-frame.v-card--link:focus-visible {
+  border-color: rgba(243, 211, 145, 0.7);
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.55),
+    inset 0 0 40px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(212, 160, 76, 0.25),
+    0 0 26px rgba(212, 160, 76, 0.18),
+    0 14px 34px rgba(0, 0, 0, 0.55) !important;
+}
+
+.v-card-title.title-font {
+  background: var(--gold-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ───────────── Botões ───────────── */
+
+.v-application .v-btn:not(.v-btn--icon) {
+  font-family: var(--font-title);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: none;
+}
+
+/* metal polido nos botões cheios */
+.v-btn.bg-primary,
+.v-btn.bg-secondary,
+.v-btn.bg-error,
+.v-btn.bg-success {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 48%, rgba(0, 0, 0, 0.28));
+  border: 1px solid rgba(243, 211, 145, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.v-btn.bg-primary {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+.v-btn.bg-primary:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 0 18px rgba(168, 50, 43, 0.6);
+}
+
+.v-btn.bg-secondary:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 0 18px rgba(212, 160, 76, 0.55);
+}
+
+.v-btn--variant-outlined {
+  border-color: rgba(212, 160, 76, 0.45);
+}
+
+/* ───────────── Campos ───────────── */
+
+.v-field--variant-outlined {
+  background: rgba(5, 3, 8, 0.45);
+}
+
+.v-field--variant-outlined:not(.v-field--focused):not(.v-field--error) .v-field__outline {
+  color: var(--gold);
+  --v-field-border-opacity: 0.32;
+}
+
+.v-field--variant-outlined:hover:not(.v-field--focused):not(.v-field--error) .v-field__outline {
+  --v-field-border-opacity: 0.6;
+}
+
+.v-field--focused {
+  box-shadow: 0 0 16px rgba(212, 160, 76, 0.15);
+}
+
+/* ───────────── Abas, tabelas, listas ───────────── */
+
+.v-tab {
+  font-family: var(--font-title) !important;
+  letter-spacing: 0.08em !important;
+  text-transform: none !important;
+}
+
+.v-tab.v-tab--selected {
+  text-shadow: 0 0 12px rgba(212, 160, 76, 0.65);
+}
+
+.v-data-table thead th {
+  font-family: var(--font-title);
+  font-size: 0.78rem !important;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold) !important;
+}
+
+.v-data-table tbody tr {
+  transition: background 0.2s;
+}
+
+.v-data-table tbody tr:hover {
+  background: linear-gradient(90deg, rgba(212, 160, 76, 0.08), transparent 70%);
+}
+
+.v-menu > .v-overlay__content > .v-list,
+.v-menu > .v-overlay__content > .v-card {
   border: 1px solid var(--border-soft);
+  background: linear-gradient(180deg, #1d1524, #120c17) !important;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6) !important;
+}
+
+.v-empty-state__media .v-icon {
+  color: var(--gold);
+  opacity: 0.65;
+  filter: drop-shadow(0 0 14px rgba(212, 160, 76, 0.35));
+}
+
+.v-empty-state__title {
+  font-family: var(--font-title);
+  letter-spacing: 0.06em;
+}
+
+/* ───────────── Diálogos ───────────── */
+
+.v-overlay__scrim {
+  background: radial-gradient(ellipse at center, #1a0f24 0%, #040206 75%) !important;
+  opacity: 0.82 !important;
+}
+
+.v-dialog > .v-overlay__content > .v-card {
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.8),
+    0 0 50px rgba(91, 58, 134, 0.35),
+    0 24px 60px rgba(0, 0, 0, 0.7) !important;
+}
+
+.v-snackbar__wrapper {
+  border: 1px solid var(--border-strong);
+  font-family: var(--font-body);
+}
+
+/* ───────────── Movimento ───────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
