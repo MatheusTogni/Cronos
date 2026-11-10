@@ -1,4 +1,4 @@
-# Grimório — fichas de RPG
+# Cronos — fichas de RPG
 
 Controle de fichas para a mesa. O mestre cadastra os logins, abre o lobby da campanha e lança eventos (dano, cura, mana, XP, condições, imagens). Cada jogador entra pelo celular, escolhe a classe, fica pronto e usa a própria ficha. Tudo aparece ao vivo para a party.
 
@@ -7,8 +7,10 @@ Controle de fichas para a mesa. O mestre cadastra os logins, abre o lobby da cam
 | `back/` | API NestJS 11 + Prisma 6 (PostgreSQL) + Socket.IO |
 | `front/` | Vue 3 + Vuetify 4 + Pinia + Vue Router (Vite) |
 | `front/public/classes/` | Arte das 9 classes (as fichas originais) |
+| `front/public/icone.png` | Ícone do app; os ícones do PWA são gerados a partir dele |
 | `back/prisma/seed/classes.json` | As 9 classes transcritas das fichas: texto, mana, críticos e efeitos automáticos |
-| `deploy/nginx.conf` | Site do nginx para a VPS |
+| `back/schema.sql` | CREATE TABLE do banco (aplicado à mão, sem migrations) |
+| `deploy.sh` | Deploy na VPS |
 
 ## Como funciona
 
@@ -43,7 +45,7 @@ npm run dev:db                  # deixe aberto
 
 # terminal 2 — API
 cd back
-npm run db:migrate              # cria as tabelas (só na primeira vez ou quando houver migration nova)
+# primeira vez: rode o back/schema.sql no banco rpg (localhost:5433, postgres/postgres)
 npm run db:seed                 # carrega as 9 classes (rode de novo quando mudar o JSON)
 npm run create-master -- matheus suasenha "Matheus"
 npm run start:dev               # API em http://127.0.0.1:3100/api
@@ -58,49 +60,55 @@ Para abrir no celular na mesma rede, use `http://<ip-do-pc>:5173`.
 
 A API usa a porta **3100** para não brigar com outros serviços na 3000. Para mudar, altere `PORT` no `back/.env` e rode o Vite com `API_URL=http://127.0.0.1:<porta> npm run dev`.
 
-## Deploy na VPS (Ubuntu + nginx + pm2 + Postgres local)
+## Deploy na VPS
 
-```bash
-# 1. Banco (UTF8 é obrigatório: o log usa caracteres como "−" e "→")
-sudo -u postgres psql <<'SQL'
-CREATE USER grimorio WITH PASSWORD 'troque-esta-senha';
-CREATE DATABASE grimorio OWNER grimorio ENCODING 'UTF8' TEMPLATE template0;
-SQL
+Endereço: **https://cronos.matheustogni.com.br**. API na porta **3008** (pm2 `cronos-api`), front publicado em `/var/www/cronos`, repositório em `~/Rpg`.
 
-# 2. Código em /var/www/grimorio (git clone, rsync…)
-cd /var/www/grimorio/back
-cp .env.example .env
-#   DATABASE_URL="postgresql://grimorio:troque-esta-senha@localhost:5432/grimorio?schema=public"
-#   JWT_SECRET=<gere com: node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))">
-#   UPLOAD_DIR=/var/lib/grimorio/uploads
-sudo mkdir -p /var/lib/grimorio/uploads && sudo chown $USER /var/lib/grimorio/uploads
+**Primeira vez:**
 
-npm ci
-npm run build
-npm run db:migrate
-npm run db:seed
-npm run create-master:prod -- matheus suasenha "Matheus"
+1. Crie o banco `cronosdb` com encoding **UTF8** (o log usa caracteres como "−" e "→") e rode o `back/schema.sql` nele.
+2. Em `~/Rpg/back`, copie o `.env.production.example` para `.env` e preencha a senha do banco e o `JWT_SECRET`.
+3. Rode `npm ci && npm run build`, depois `npm run db:seed` (as 9 classes) e `npm run create-master:prod -- matheus suasenha "Matheus"`.
+4. No nginx do domínio, além de servir `/var/www/cronos` com fallback para o `index.html`:
 
-# 3. API no pm2 (uma instância só — ver ecosystem.config.cjs)
-pm2 start ecosystem.config.cjs
-pm2 save
-pm2 startup                     # siga a instrução que ele imprimir
+```nginx
+client_max_body_size 16m;   # imagens do mestre (até 15 MB)
 
-# 4. Front
-cd ../front
-npm ci
-npm run build                   # gera front/dist
+location /api/ {
+    proxy_pass http://127.0.0.1:3008;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
 
-# 5. nginx
-sudo cp ../deploy/nginx.conf /etc/nginx/sites-available/grimorio   # ajuste server_name e root
-sudo ln -s /etc/nginx/sites-available/grimorio /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d rpg.seudominio.com.br                       # HTTPS
+# tempo real: sem os headers de upgrade o Socket.IO não conecta
+location /socket.io/ {
+    proxy_pass http://127.0.0.1:3008;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 3600s;
+}
+
+# PWA: sem cache, senão a atualização não chega nos celulares
+location ~ ^/(sw\.js|registerSW\.js|manifest\.webmanifest|index\.html)$ {
+    add_header Cache-Control "no-cache";
+}
 ```
 
-**Atualizar depois:** `git pull`, depois `cd back && npm ci && npm run build && npm run db:migrate && pm2 restart grimorio-api`, depois `cd ../front && npm ci && npm run build`.
+**Depois:** `./deploy.sh`. Se o `schema.prisma` mudar, aplique o ALTER no banco à mão e atualize o `schema.sql`. Se o `classes.json` mudar, rode `npm run db:seed` em `~/Rpg/back`.
 
-**Backup:** o banco (`pg_dump grimorio`) e a pasta `UPLOAD_DIR` (as imagens).
+**Backup:** o banco (`pg_dump cronosdb`) e a pasta `back/uploads` (as imagens do mestre).
+
+## App no celular (PWA)
+
+O front é um PWA: no celular, abra o site e use **Adicionar à tela inicial** (Android/Chrome instala como app; no iPhone, pelo Safari em *Compartilhar*). Ele abre em tela cheia, com o ícone da ampulheta.
+
+- **Precisa de HTTPS.** Em `http://<ip-do-pc>:5173` o app abre normal, mas não instala.
+- O service worker só existe no build (`npm run build`), não no `npm run dev`.
+- A tela abre mesmo sem rede, mas a mesa (API e tempo real) precisa de conexão. A arte das classes e as imagens do mestre ficam em cache depois da primeira vez.
+- **Atualização:** depois de um novo build, o app baixa a versão nova em segundo plano e passa a usá-la na próxima vez que for aberto.
+- **Trocar o ícone:** substitua `front/public/icone.png` (quadrado, de preferência 1024px ou mais) e rode `npm run pwa-assets` em `front/`. Isso regera o favicon e os ícones `pwa-*`, `maskable-*` e `apple-touch-*` em `front/public/`.
 
 ## Verificações
 

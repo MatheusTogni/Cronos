@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const TOKEN_KEY = 'grimorio.token'
+const TOKEN_KEY = 'cronos.token'
 
 export const tokenStorage = {
   get(): string | null {

@@ -37,7 +37,7 @@ function logout() {
 <template>
   <v-app-bar flat color="surface" class="app-bar" density="comfortable">
     <v-app-bar-title>
-      <span class="title-font brand">Grimório</span>
+      <span class="title-font brand">Cronos</span>
     </v-app-bar-title>
 
     <template #append>

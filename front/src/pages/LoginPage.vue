@@ -38,7 +38,7 @@ async function submit() {
 <template>
   <v-main class="login-main">
     <div class="login-wrap">
-      <h1 class="title-font login-title">Grimório</h1>
+      <h1 class="title-font login-title">Cronos</h1>
       <p class="login-sub">Fichas da mesa</p>
 
       <v-card class="card-frame pa-6" color="surface">

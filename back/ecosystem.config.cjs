@@ -5,13 +5,13 @@
 module.exports = {
   apps: [
     {
-      name: 'grimorio-api',
+      name: 'cronos-api',
       cwd: __dirname,
       script: 'dist/main.js',
       exec_mode: 'fork',
       instances: 1,
       max_memory_restart: '300M',
-      env: { NODE_ENV: 'production' },
+      env: { NODE_ENV: 'production', PORT: 3008 },
     },
   ],
 };

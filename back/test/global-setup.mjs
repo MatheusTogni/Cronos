@@ -1,5 +1,5 @@
 // Sobe um PostgreSQL real (embutido, sem instalar nada) para os testes e2e,
-// aplica as migrations e carrega as classes do seed.
+// aplica o schema.sql e carrega as classes do seed.
 import { execSync } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -29,7 +29,7 @@ export default async function globalSetup() {
   process.env.UPLOAD_DIR = join(dir, 'uploads');
 
   const opts = { env: process.env, stdio: 'pipe' };
-  execSync('npx prisma migrate deploy', opts);
+  execSync('npx prisma db execute --file schema.sql --schema prisma/schema.prisma', opts);
   execSync('npx prisma db seed', opts);
 
   globalThis.__RPG_PG__ = pg;

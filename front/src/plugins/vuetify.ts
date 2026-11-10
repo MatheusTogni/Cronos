@@ -7,9 +7,9 @@ import { pt } from 'vuetify/locale'
 export default createVuetify({
   locale: { locale: 'pt', messages: { pt } },
   theme: {
-    defaultTheme: 'grimorio',
+    defaultTheme: 'cronos',
     themes: {
-      grimorio: {
+      cronos: {
         dark: true,
         colors: {
           background: '#0e0b0d',

@@ -29,7 +29,7 @@ if (firstRun) await pg.createDatabase('rpg');
 
 console.log(`Postgres de desenvolvimento rodando em localhost:${port} (banco "rpg").`);
 if (firstRun) {
-  console.log('Primeira vez: em outro terminal rode  npm run db:migrate && npm run db:seed');
+  console.log('Primeira vez: rode o schema.sql neste banco e depois  npm run db:seed');
 }
 console.log('Ctrl+C para parar.');
 

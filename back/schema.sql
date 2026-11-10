@@ -1,5 +1,9 @@
--- CreateSchema
-CREATE SCHEMA IF NOT EXISTS "public";
+-- Cronos — schema PostgreSQL
+-- Executar manualmente contra o banco (desenvolvimento e produção) antes de subir a API.
+-- Não há migrations automáticas: o Prisma só lê e grava, não cria tabelas.
+-- O banco precisa ser UTF8 (o log usa caracteres como "−" e "→").
+-- Depois rode `npm run db:seed` para carregar as 9 classes.
+-- Se mudar o prisma/schema.prisma, aplique o ALTER correspondente no banco e atualize este arquivo.
 
 -- CreateEnum
 CREATE TYPE "Role" AS ENUM ('MASTER', 'PLAYER');
