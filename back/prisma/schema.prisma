@@ -1,0 +1,255 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  MASTER
+  PLAYER
+}
+
+enum CampaignStatus {
+  DRAFT // mestre preparando
+  LOBBY // aberta para os jogadores entrarem
+  ACTIVE // aventura em andamento
+  ENDED
+}
+
+enum AbilityKind {
+  BASIC
+  SKILL
+}
+
+/// Efeito automático aplicado ao usar a habilidade (além de descontar mana e gerar log).
+enum AbilityEffect {
+  SUMMON // cria uma invocação no personagem
+  SACRIFICE_SUMMON // consome uma invocação existente
+  SELF_CONDITION // aplica condição no próprio personagem
+  TARGET_CONDITION // aplica condição no personagem-alvo (quando o alvo é alguém da party)
+}
+
+enum LogType {
+  DAMAGE
+  HEAL
+  MANA
+  XP
+  LEVEL
+  ABILITY_USED
+  DICE_ROLL
+  CONDITION_ADDED
+  CONDITION_REMOVED
+  SUMMON_CREATED
+  SUMMON_REMOVED
+  SUMMON_UPDATED
+  ITEM_ADDED
+  ITEM_REMOVED
+  ITEM_UPDATED
+  CAMPAIGN
+  NOTE
+}
+
+model User {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  displayName  String
+  passwordHash String
+  role         Role
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  campaignsMastered Campaign[]
+  campaignSeats     CampaignPlayer[]
+  characters        Character[]
+  logEntries        LogEntry[]
+
+  @@map("users")
+}
+
+model Campaign {
+  id           String         @id @default(uuid())
+  name         String
+  description  String?
+  status       CampaignStatus @default(DRAFT)
+  masterId     String
+  shownImageId String?        @unique
+  createdAt    DateTime       @default(now())
+  startedAt    DateTime?
+  endedAt      DateTime?
+
+  master     User             @relation(fields: [masterId], references: [id])
+  shownImage CampaignImage?   @relation("ShownImage", fields: [shownImageId], references: [id], onDelete: SetNull)
+  images     CampaignImage[]  @relation("CampaignImages")
+  players    CampaignPlayer[]
+  characters Character[]
+  logEntries LogEntry[]
+
+  @@map("campaigns")
+}
+
+model CampaignPlayer {
+  campaignId String
+  userId     String
+  ready      Boolean  @default(false)
+  joinedAt   DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, userId])
+  @@map("campaign_players")
+}
+
+model CharacterClass {
+  id           String   @id // slug: "necromante", "raposa-vermelha"...
+  name         String
+  tagline      String? // subtítulo da ficha, ex.: "Torturador / Carrasco"
+  categories   String[]
+  identity     String
+  mechanicName String
+  mechanicText String
+  baseHp       Int
+  baseMana     Int
+  maxSummons   Int      @default(0)
+  color        String // cor de destaque da ficha (hex)
+  artFile      String // caminho público da arte, ex.: "/classes/necromante.png"
+  sortOrder    Int      @default(0)
+
+  abilities  Ability[]
+  characters Character[]
+
+  @@map("character_classes")
+}
+
+model Ability {
+  id          String         @id @default(uuid())
+  classId     String
+  kind        AbilityKind
+  name        String
+  manaCost    Int            @default(0)
+  description String
+  /// Lista de faixas de crítico: [{ "min": 18, "max": 20, "text": "..." }]
+  crits       Json?
+  effect      AbilityEffect?
+  /// Parâmetros do efeito, ex.: { "name": "Máscara da Serenidade", "exclusiveGroup": "mascara" }
+  effectData  Json?
+  sortOrder   Int            @default(0)
+
+  class CharacterClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, name])
+  @@map("abilities")
+}
+
+model Character {
+  id         String   @id @default(uuid())
+  campaignId String
+  userId     String
+  classId    String
+  name       String
+  level      Int      @default(1)
+  xp         Int      @default(0)
+  hp         Int
+  hpMax      Int
+  mana       Int
+  manaMax    Int
+  notes      String   @default("")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  campaign   Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  user       User            @relation(fields: [userId], references: [id])
+  class      CharacterClass  @relation(fields: [classId], references: [id])
+  summons    Summon[]
+  conditions Condition[]
+  inventory  InventoryItem[]
+  logEntries LogEntry[]
+
+  @@unique([campaignId, userId])
+  @@map("characters")
+}
+
+model Summon {
+  id          String   @id @default(uuid())
+  characterId String
+  name        String
+  hp          Int
+  hpMax       Int
+  notes       String   @default("")
+  createdAt   DateTime @default(now())
+
+  character  Character   @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  conditions Condition[]
+
+  @@map("summons")
+}
+
+model Condition {
+  id             String   @id @default(uuid())
+  characterId    String?
+  summonId       String?
+  name           String
+  description    String?
+  source         String? // quem aplicou (texto livre ou nome do personagem)
+  exclusiveGroup String? // ex.: "mascara" — só uma condição do grupo por alvo
+  duration       String? // texto livre: "2 turnos", "até o fim da cena"
+  createdAt      DateTime @default(now())
+
+  character Character? @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  summon    Summon?    @relation(fields: [summonId], references: [id], onDelete: Cascade)
+
+  @@map("conditions")
+}
+
+model InventoryItem {
+  id          String   @id @default(uuid())
+  characterId String
+  name        String
+  qty         Int      @default(1)
+  description String?
+  createdAt   DateTime @default(now())
+
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@map("inventory_items")
+}
+
+model CampaignImage {
+  id           String   @id @default(uuid())
+  campaignId   String
+  filename     String // nome no disco (uuid + extensão)
+  originalName String
+  title        String
+  createdAt    DateTime @default(now())
+
+  campaign  Campaign  @relation("CampaignImages", fields: [campaignId], references: [id], onDelete: Cascade)
+  shownIn   Campaign? @relation("ShownImage")
+
+  @@map("campaign_images")
+}
+
+model LogEntry {
+  id          String    @id @default(uuid())
+  campaignId  String
+  actorUserId String?
+  characterId String?
+  type        LogType
+  message     String
+  /// Valores antes/depois, usados pelo "desfazer" do mestre.
+  delta       Json?
+  /// Resultado de dado associado (d20), quando houver.
+  roll        Int?
+  revertedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  campaign  Campaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  actor     User?      @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  character Character? @relation(fields: [characterId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId, createdAt])
+  @@map("log_entries")
+}
