@@ -62,12 +62,12 @@ A API usa a porta **3100** para não brigar com outros serviços na 3000. Para m
 
 ## Deploy na VPS
 
-Endereço: **https://cronos.matheustogni.com.br**. API na porta **3008** (pm2 `cronos-api`), front publicado em `/var/www/cronos`, repositório em `~/Rpg`.
+Endereço: **https://cronos.matheustogni.com.br**. API na porta **3008** (pm2 `cronos-api`), front publicado em `/var/www/cronos`, repositório em `~/Cronos`.
 
 **Primeira vez:**
 
 1. Crie o banco `cronosdb` com encoding **UTF8** (o log usa caracteres como "−" e "→") e rode o `back/schema.sql` nele.
-2. Em `~/Rpg/back`, copie o `.env.production.example` para `.env` e preencha a senha do banco e o `JWT_SECRET`.
+2. Em `~/Cronos/back`, copie o `.env.production.example` para `.env` e preencha a senha do banco e o `JWT_SECRET`.
 3. Rode `npm ci && npm run build`, depois `npm run db:seed` (as 9 classes) e `npm run create-master:prod -- matheus suasenha "Matheus"`.
 4. No nginx do domínio, além de servir `/var/www/cronos` com fallback para o `index.html`:
 
@@ -96,7 +96,7 @@ location ~ ^/(sw\.js|registerSW\.js|manifest\.webmanifest|index\.html)$ {
 }
 ```
 
-**Depois:** `./deploy.sh`. Se o `schema.prisma` mudar, aplique o ALTER no banco à mão e atualize o `schema.sql`. Se o `classes.json` mudar, rode `npm run db:seed` em `~/Rpg/back`.
+**Depois:** `./deploy.sh`. Se o `schema.prisma` mudar, aplique o ALTER no banco à mão e atualize o `schema.sql`. Se o `classes.json` mudar, rode `npm run db:seed` em `~/Cronos/back`.
 
 **Backup:** o banco (`pg_dump cronosdb`) e a pasta `back/uploads` (as imagens do mestre).
 

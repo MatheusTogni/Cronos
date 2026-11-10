@@ -7,7 +7,7 @@ source "$NVM_DIR/nvm.sh"
 nvm use 22
 
 BACKUP_DIR="$HOME/backups/deploy/Cronos"
-REPO_DIR="$HOME/Rpg"
+REPO_DIR="$HOME/Cronos"
 FRONT_WWW="/var/www/cronos"
 PM2_APP="cronos-api"
 PREV_COMMIT=""
