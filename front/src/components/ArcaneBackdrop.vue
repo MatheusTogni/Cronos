@@ -25,7 +25,6 @@ const embers = Array.from({ length: EMBERS }, () => ({
     <div class="stars stars-a" />
     <div class="stars stars-b" />
     <span v-for="(e, i) in embers" :key="i" class="ember" :style="e" />
-    <div class="grain" />
     <div class="vignette" />
   </div>
 </template>
@@ -152,14 +151,9 @@ const embers = Array.from({ length: EMBERS }, () => ({
   }
 }
 
-/* ───── textura e vinheta ───── */
-.grain {
-  position: absolute;
-  inset: 0;
-  opacity: 0.07;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 .9  0 0 0 0 .75  0 0 0 .9 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
-}
-
+/* ───── vinheta ─────
+ * (sem textura de ruído em SVG: o Chrome desenhava o primeiro "azulejo" dela
+ * diferente e aparecia um quadrado claro no canto superior esquerdo) */
 .vignette {
   position: absolute;
   inset: 0;

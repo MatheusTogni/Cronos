@@ -253,6 +253,9 @@ onBeforeUnmount(() => {
 .gallery {
   position: relative;
   padding-top: 12px;
+  /* o relógio girando passa da largura na diagonal; sem isto a página ficava
+     mais larga que a tela no celular (e o X do quadro aberto sumia à direita) */
+  overflow-x: clip;
 }
 
 .clock {
@@ -715,9 +718,10 @@ onBeforeUnmount(() => {
 }
 
 .cx-close {
-  position: absolute;
-  top: 16px;
-  right: 16px;
+  position: fixed;
+  z-index: 3;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
   border: 1px solid var(--border-strong);
   opacity: 0;
   transition: opacity 0.3s 0.3s;

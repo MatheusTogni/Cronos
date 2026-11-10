@@ -34,6 +34,8 @@
 html,
 body {
   background: var(--ink);
+  /* nenhum enfeite girando/flutuando pode alargar a página no celular */
+  overflow-x: clip;
 }
 
 ::selection {
