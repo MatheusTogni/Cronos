@@ -6,6 +6,7 @@ import router from './router'
 import vuetify from './plugins/vuetify'
 import { setUnauthorizedHandler } from './services/api'
 import { useAuthStore } from './stores/auth'
+import { useLiteStore } from './stores/lite'
 import { useNotifyStore } from './stores/notify'
 import { useRealtimeStore } from './stores/realtime'
 import './styles/main.css'
@@ -26,5 +27,8 @@ setUnauthorizedHandler(() => {
   useNotifyStore(pinia).info('Sua sessão expirou, entre novamente')
   void router.push('/login')
 })
+
+// modo leve aplicado antes da primeira pintura
+useLiteStore(pinia)
 
 app.mount('#app')

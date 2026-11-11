@@ -104,10 +104,11 @@ function adjust(c: Character, kind: AdjustKind) {
   adjustOpen.value = true
 }
 // mantém o personagem do diálogo atualizado com o estado ao vivo
+// (o patch troca só o item alterado, então vigia o item, não o array)
 watch(
-  () => state.value?.characters,
-  (list) => {
-    if (target.value) target.value = list?.find((c) => c.id === target.value!.id) ?? null
+  () => (target.value ? (state.value?.characters.find((c) => c.id === target.value!.id) ?? null) : null),
+  (fresh) => {
+    if (target.value && fresh !== target.value) target.value = fresh
   },
 )
 

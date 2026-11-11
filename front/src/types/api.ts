@@ -286,6 +286,21 @@ export interface CampaignImage {
   createdAt: string
 }
 
+/** Lista com id: o que entrou/mudou (inteiro), o que saiu e a ordem nova. */
+export interface ListPatch<T> {
+  upsert: T[]
+  remove: string[]
+  order?: string[]
+}
+
+/** Só o que mudou na campanha desde o último envio (evento campaign:patch). */
+export interface CampaignPatch {
+  id: string
+  set?: Partial<Omit<CampaignState, 'characters' | 'npcs'>>
+  characters?: ListPatch<Character>
+  npcs?: ListPatch<Npc>
+}
+
 /** Resposta das ações de jogo. */
 export interface ActionResult {
   log: LogEntry | null

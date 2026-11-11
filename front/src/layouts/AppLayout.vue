@@ -2,11 +2,13 @@
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { homeFor, useAuthStore } from '@/stores/auth'
+import { useLiteStore } from '@/stores/lite'
 import { useRealtimeStore } from '@/stores/realtime'
 import { ROLE_LABEL } from '@/types/api'
 
 const auth = useAuthStore()
 const realtime = useRealtimeStore()
+const liteMode = useLiteStore()
 const router = useRouter()
 
 /** Cada papel vê só os próprios menus. */
@@ -61,6 +63,25 @@ function logout() {
             :title="auth.user?.displayName"
             :subtitle="`${auth.user?.username} · ${auth.user ? ROLE_LABEL[auth.user.role] : ''}`"
           />
+          <v-divider />
+          <v-list-item
+            prepend-icon="mdi-feather"
+            title="Modo leve"
+            subtitle="Menos animações, mais rápido"
+            @click="liteMode.toggle()"
+          >
+            <template #append>
+              <v-switch
+                :model-value="liteMode.lite"
+                color="secondary"
+                density="compact"
+                hide-details
+                inset
+                aria-label="Modo leve"
+                @click.stop="liteMode.toggle()"
+              />
+            </template>
+          </v-list-item>
           <v-divider />
           <v-list-item prepend-icon="mdi-door-open" title="Sair da mesa" @click="logout" />
         </v-list>

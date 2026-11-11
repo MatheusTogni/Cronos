@@ -363,3 +363,32 @@ h2.section::after {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ───────────── modo leve (menu do usuário) ─────────────
+ * Desliga só o que é decoração contínua. Transições curtas de interface
+ * (abrir diálogo, carta voando, fumaça se abrindo) continuam. */
+html.lite .backdrop .fog,
+html.lite .backdrop .stars,
+html.lite .gallery .clock,
+html.lite .gallery .hand,
+html.lite .gallery .float,
+html.lite .gallery .spinner,
+html.lite .gallery .ground-shadow,
+html.lite .art .rays,
+html.lite .art .ring,
+html.lite .art .glow,
+html.lite .art .sigil,
+html.lite .rune .ring,
+html.lite .overlay .puff,
+html.lite .low .fill,
+html.lite .entry {
+  animation: none !important;
+}
+
+html.lite .backdrop .ember,
+html.lite .art .motes,
+html.lite .overlay .wisps,
+html.lite .glare,
+html.lite .fill::after {
+  display: none !important;
+}

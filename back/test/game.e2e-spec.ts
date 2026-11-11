@@ -1212,17 +1212,30 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       const leaked: string[] = [];
       outsider.onAny((event: string) => leaked.push(event));
 
-      const gotState = new Promise<State>((r) =>
-        joanaSocket.once('campaign:state', r),
-      );
+      // a campanha já foi enviada inteira antes (abrir, entrar, começar):
+      // agora vai só o que mudou
+      const gotPatch = new Promise<{
+        id: string;
+        set?: object;
+        characters?: { upsert: Character[]; remove: string[] };
+        npcs?: object;
+      }>((r) => joanaSocket.once('campaign:patch', r));
       const gotLog = new Promise<Log>((r) => joanaSocket.once('log:new', r));
 
       await master
         .post(`/characters/${morgana.id}/adjust`, { hp: -5 })
         .expect(200);
 
-      const s = await gotState;
-      expect(s.characters.find((c) => c.id === morgana.id)?.hp).toBe(15);
+      const patch = await gotPatch;
+      expect(patch.id).toBe(id);
+      expect(patch.set).toBeUndefined();
+      expect(patch.npcs).toBeUndefined();
+      expect(patch.characters!.remove).toEqual([]);
+      expect(patch.characters!.upsert).toHaveLength(1);
+      expect(patch.characters!.upsert[0]).toMatchObject({
+        id: morgana.id,
+        hp: 15,
+      });
       expect((await gotLog).message).toContain('Morgana recebeu 5 de dano');
       expect(leaked).toEqual([]);
     });

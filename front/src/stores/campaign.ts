@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useClassesStore } from '@/stores/classes'
 import { useNotifyStore } from '@/stores/notify'
 import { useRealtimeStore } from '@/stores/realtime'
-import type { ActionResult, CampaignState, LogEntry } from '@/types/api'
+import type { ActionResult, CampaignPatch, CampaignState, ListPatch, LogEntry } from '@/types/api'
 
 type StateWithLogs = CampaignState & { logs: LogEntry[] }
 
@@ -60,6 +60,34 @@ export const useCampaignStore = defineStore('campaign', () => {
     if (incoming) logs.value = incoming
   }
 
+  /**
+   * Aplica só o que mudou. Troca apenas os itens alterados: os cards dos
+   * outros personagens nem re-renderizam.
+   */
+  function patchList<T extends { id: string }>(list: T[], p: ListPatch<T>) {
+    if (p.remove.length) {
+      const gone = new Set(p.remove)
+      for (let i = list.length - 1; i >= 0; i--) if (gone.has(list[i]!.id)) list.splice(i, 1)
+    }
+    for (const item of p.upsert) {
+      const i = list.findIndex((x) => x.id === item.id)
+      if (i >= 0) list[i] = item
+      else list.push(item)
+    }
+    if (p.order) {
+      const byId = new Map(list.map((x) => [x.id, x]))
+      list.splice(0, list.length, ...p.order.map((id) => byId.get(id)).filter((x): x is T => !!x))
+    }
+  }
+
+  function applyPatch(p: CampaignPatch) {
+    const s = state.value
+    if (!s || p.id !== s.id) return
+    if (p.set) Object.assign(s, p.set)
+    if (p.characters) patchList(s.characters, p.characters)
+    if (p.npcs) patchList(s.npcs, p.npcs)
+  }
+
   function pushLog(entry: LogEntry | null | undefined) {
     if (!entry || logs.value.some((l) => l.id === entry.id)) return
     logs.value.push(entry)
@@ -80,6 +108,9 @@ export const useCampaignStore = defineStore('campaign', () => {
     offs.push(
       realtime.on<CampaignState>('campaign:state', (s) => {
         if (s.id === campaignId.value) apply(s)
+      }),
+      realtime.on<CampaignPatch>('campaign:patch', (p) => {
+        if (p.id === campaignId.value) applyPatch(p)
       }),
       realtime.on<LogEntry>('log:new', (entry) => pushLog(entry)),
       realtime.on<LogEntry>('log:updated', (entry) => {
