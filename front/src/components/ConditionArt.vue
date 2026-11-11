@@ -8,7 +8,11 @@ import { conditionArt, roman } from '@/utils/conditionArt'
  * ícone dentro de um círculo de runas girando, nome e efeitos no rodapé.
  * Tudo em cqw, então serve tanto no quadro pequeno quanto no aberto.
  */
-const props = defineProps<{ def: ConditionDef }>()
+const props = defineProps<{
+  def: ConditionDef
+  /** Animação interna completa (carta aberta). Na galeria fica parada: são 29 cartas. */
+  live?: boolean
+}>()
 
 const art = computed(() => conditionArt(props.def.id, props.def.polarity))
 const pathId = `cond-ring-${useId()}`
@@ -17,7 +21,7 @@ const turns = computed(() => (props.def.turns ? roman(props.def.turns) : '∞'))
 </script>
 
 <template>
-  <div class="art" :class="def.polarity.toLowerCase()" :style="{ '--tone': art.color }" aria-hidden="true">
+  <div class="art" :class="[def.polarity.toLowerCase(), { live }]" :style="{ '--tone': art.color }" aria-hidden="true">
     <div class="rays" />
 
     <div class="top">
@@ -49,7 +53,7 @@ const turns = computed(() => (props.def.turns ? roman(props.def.turns) : '∞'))
       <v-icon :icon="art.icon" class="sigil" />
     </div>
 
-    <div class="motes">
+    <div v-if="live" class="motes">
       <span v-for="n in 6" :key="n" :style="{ '--i': n }" />
     </div>
 
@@ -308,6 +312,15 @@ const turns = computed(() => (props.def.turns ? roman(props.def.turns) : '∞'))
     opacity: 0;
     translate: 0 -55cqh;
   }
+}
+
+/* miniatura da galeria: tudo parado (o quadro já flutua e gira por fora) */
+.art:not(.live) .rays,
+.art:not(.live) .ring-text,
+.art:not(.live) .ring-ticks,
+.art:not(.live) .glow,
+.art:not(.live) .sigil {
+  animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

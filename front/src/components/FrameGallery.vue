@@ -33,9 +33,30 @@ const NUMERALS = ['XII', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX',
 
 // ───── abrir / fechar com o quadro voando ─────
 const slots = new Map<string, HTMLElement>()
+
+// Quadros fora da tela param de animar (marca no próprio elemento, sem
+// reatividade: não custa render nenhum ao rolar).
+const visibility =
+  typeof IntersectionObserver === 'undefined'
+    ? null
+    : new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            const el = e.target as HTMLElement
+            if (e.isIntersecting) delete el.dataset.offscreen
+            else el.dataset.offscreen = '1'
+          }
+        },
+        { rootMargin: '120px' },
+      )
+
 function setSlot(id: string, el: unknown) {
-  if (el instanceof HTMLElement) slots.set(id, el)
-  else slots.delete(id)
+  const old = slots.get(id)
+  if (old && old !== el) visibility?.unobserve(old)
+  if (el instanceof HTMLElement) {
+    if (old !== el) visibility?.observe(el)
+    slots.set(id, el)
+  } else slots.delete(id)
 }
 
 const selected = ref<T | null>(null)
@@ -185,6 +206,7 @@ function onKey(e: KeyboardEvent) {
 
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => {
+  visibility?.disconnect()
   window.removeEventListener('keydown', onKey)
   clearTimeout(closeTimer)
   lockScroll(false)
@@ -616,26 +638,43 @@ onBeforeUnmount(() => {
     radial-gradient(circle at calc(100% - 4.5px) calc(100% - 4.5px), #fff3c8 0 1.8px, #6b4219 2.2px 3.2px, transparent 3.6px);
 }
 
-/* reflexo de vidro passando */
+/* reflexo de vidro passando — anima transform (placa de vídeo), não
+   background-position (que redesenha o quadro inteiro a cada frame) */
 .glare {
   position: absolute;
   inset: 9px;
   z-index: 1;
   pointer-events: none;
-  background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.16) 48%, transparent 60%);
-  background-size: 260% 100%;
+  overflow: hidden;
+}
+
+.glare::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 60%;
+  background: linear-gradient(115deg, transparent 20%, rgba(255, 255, 255, 0.16) 50%, transparent 80%);
+  transform: translateX(-120%);
   animation: glare 7s ease-in-out infinite;
 }
 
 @keyframes glare {
   0%,
   20% {
-    background-position: 130% 0;
+    transform: translateX(-120%);
   }
   70%,
   100% {
-    background-position: -60% 0;
+    transform: translateX(220%);
   }
+}
+
+/* quadro fora da tela: para de animar até voltar a aparecer */
+.slot[data-offscreen] .float,
+.slot[data-offscreen] .spinner,
+.slot[data-offscreen] .ground-shadow,
+.slot[data-offscreen] .glare::before {
+  animation-play-state: paused;
 }
 
 .back-inner {
@@ -973,7 +1012,7 @@ onBeforeUnmount(() => {
   .float,
   .clock,
   .hand,
-  .glare,
+  .glare::before,
   .ground-shadow {
     animation: none;
   }

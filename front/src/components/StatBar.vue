@@ -116,24 +116,26 @@ const low = computed(() => props.max > 0 && pct.value > 0 && pct.value <= 25)
   );
   box-shadow: 0 0 12px color-mix(in srgb, var(--c) 70%, transparent);
   transition: width 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  overflow: hidden;
 }
 
-/* brilho correndo pelo líquido */
+/* brilho correndo pelo líquido — por transform, sem redesenhar a barra */
 .fill::after {
   content: '';
   position: absolute;
-  inset: 0;
-  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.28) 50%, transparent 70%);
-  background-size: 250% 100%;
+  inset: 0 auto 0 0;
+  width: 60%;
+  background: linear-gradient(100deg, transparent 10%, rgba(255, 255, 255, 0.28) 50%, transparent 90%);
+  transform: translateX(-100%);
   animation: sheen 4.5s linear infinite;
 }
 
 @keyframes sheen {
   from {
-    background-position: 150% 0;
+    transform: translateX(-100%);
   }
   to {
-    background-position: -100% 0;
+    transform: translateX(260%);
   }
 }
 

@@ -230,18 +230,13 @@ async function removeNpc(n: Npc) {
 
 // ── efeito pendente ("Aplicar em…") ──
 const applyOpen = ref(false)
-const applyEntry = ref<LogEntry | null>(null)
+// pelo id: acompanha o log ao vivo sem vigiar os 300 registros a fundo
+const applyId = ref<string | null>(null)
+const applyEntry = computed(() => (applyId.value ? (campaign.logs.find((l) => l.id === applyId.value) ?? null) : null))
 function openApply(entry: LogEntry) {
-  applyEntry.value = entry
+  applyId.value = entry.id
   applyOpen.value = true
 }
-watch(
-  () => campaign.logs,
-  (list) => {
-    if (applyEntry.value) applyEntry.value = list.find((l) => l.id === applyEntry.value!.id) ?? null
-  },
-  { deep: true },
-)
 const discardPending = (entry: LogEntry) =>
   campaign.act(() => api.delete(`/logs/${entry.id}/pending`).then(() => ({ data: null })))
 

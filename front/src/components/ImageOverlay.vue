@@ -108,10 +108,12 @@ function wisps(seed: number, count: number): Puff[] {
   })
 }
 
-const LEFT = bank(7, 12)
-const RIGHT = bank(19, 12)
-const WISPS_LEFT = wisps(31, 5)
-const WISPS_RIGHT = wisps(43, 5)
+// celular: menos nuvens (cada uma é uma camada grande na placa de vídeo)
+const small = typeof window !== 'undefined' && window.matchMedia('(max-width: 700px)').matches
+const LEFT = bank(7, small ? 7 : 12)
+const RIGHT = bank(19, small ? 7 : 12)
+const WISPS_LEFT = wisps(31, small ? 3 : 5)
+const WISPS_RIGHT = wisps(43, small ? 3 : 5)
 </script>
 
 <template>

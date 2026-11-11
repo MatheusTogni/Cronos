@@ -75,8 +75,8 @@ onMounted(() => void load())
     </v-chip-group>
 
     <FrameGallery :items="items" item-label="a condição">
-      <template #art="{ item }">
-        <ConditionArt :def="item.def" />
+      <template #art="{ item, hero }">
+        <ConditionArt :def="item.def" :live="hero" />
       </template>
       <template #panel="{ item }">
         <ConditionSheet :def="item.def" />
