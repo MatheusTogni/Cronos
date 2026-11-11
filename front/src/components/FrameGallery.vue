@@ -311,10 +311,6 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
-          <div class="cx-hint">
-            <v-icon :icon="flat ? 'mdi-rotate-3d-variant' : 'mdi-magnify-plus-outline'" size="small" />
-            {{ flat ? 'Toque para inclinar' : 'Toque para endireitar' }}
-          </div>
         </div>
 
         <div ref="panel" class="cx-panel card-frame" aria-live="polite">
@@ -837,21 +833,6 @@ onBeforeUnmount(() => {
   outline-offset: 6px;
 }
 
-.cx-hint {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -34px;
-  text-align: center;
-  font-size: 0.85rem;
-  opacity: 0;
-  transition: opacity 0.4s 0.5s;
-}
-
-.cx.entered .cx-hint {
-  opacity: 0.6;
-}
-
 .cx-panel {
   max-height: 100%;
   overflow-y: auto;
@@ -994,11 +975,6 @@ onBeforeUnmount(() => {
 
   .cx-hero-wrap {
     width: min(48vw, calc(34dvh * 2 / 3));
-  }
-
-  .cx-hint {
-    bottom: -28px;
-    font-size: 0.78rem;
   }
 
   .cx-panel {
