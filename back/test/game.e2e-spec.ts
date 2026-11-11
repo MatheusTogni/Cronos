@@ -14,11 +14,23 @@ interface Summon {
   id: string;
   name: string;
   hp: number;
+  conditions: Condition[];
+}
+interface Npc {
+  id: string;
+  name: string;
+  hp: number;
+  hpMax: number;
+  conditions: Condition[];
 }
 interface Condition {
   id: string;
   name: string;
   exclusiveGroup: string | null;
+  polarity: string;
+  turnsLeft: number | null;
+  hpPerTurn: number;
+  skipsTurn: boolean;
 }
 interface Character {
   id: string;
@@ -40,13 +52,24 @@ interface Log {
   message: string;
   roll: number | null;
   revertible: boolean;
+  pendingEffect: {
+    source: string;
+    conditions: { defId?: string; name?: string }[];
+  } | null;
 }
 interface State {
   id: string;
   status: string;
   players: { userId: string; ready: boolean }[];
   characters: Character[];
+  npcs: Npc[];
   shownImage: { url: string } | null;
+  combat: {
+    round: number;
+    turnIndex: number;
+    order: string[];
+    currentCharacterId: string | null;
+  } | null;
   logs: Log[];
 }
 
@@ -608,7 +631,7 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       await master
         .post(`/characters/${veu.id}/conditions`, {
           name: 'Envenenado',
-          duration: '3 turnos',
+          turns: 3,
         })
         .expect(201);
       // jogador não põe condição em ninguém, nem em si mesmo
@@ -672,6 +695,440 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
   });
 
   // ───────────── imagens ─────────────
+
+  describe('combate e condições', () => {
+    const toque = () => ability(t, 'necromante', 'Toque Fúnebre');
+    const rosto = () => ability(t, 'mascareiro', 'Rosto Vazio');
+    const next = (c: Client, id: string, body: object = {}) =>
+      c.post(`/campaigns/${id}/combat/next`, body);
+    const lastLog = async (id: string) =>
+      (await state(master, id)).logs.at(-1)!;
+
+    it('catálogo de condições', async () => {
+      const list = (await kaua.get('/conditions').expect(200)).body as {
+        id: string;
+        turns: number | null;
+        hpPerTurn: number;
+        skipsTurn: boolean;
+      }[];
+      expect(list.find((d) => d.id === 'sangrando')).toMatchObject({
+        turns: 3,
+        hpPerTurn: -1,
+      });
+      expect(list.find((d) => d.id === 'incapacitado')).toMatchObject({
+        skipsTurn: true,
+      });
+    });
+
+    it('o combate abre no mestre e cada jogador só age e passa no próprio turno', async () => {
+      const { id, morgana, veu } = await activeCampaign();
+      await kaua.post(`/campaigns/${id}/combat/start`).expect(403);
+      await master.post(`/campaigns/${id}/combat/start`).expect(200);
+      await master.post(`/campaigns/${id}/combat/start`).expect(400);
+
+      let s = await state(kaua, id);
+      expect(s.combat).toEqual({
+        round: 1,
+        turnIndex: 0,
+        order: [morgana.id, veu.id],
+        currentCharacterId: null,
+      });
+
+      // turno do mestre: ninguém usa habilidade nem passa a vez dele
+      await kaua
+        .post(`/characters/${morgana.id}/abilities/${await toque()}/use`, {
+          rollMode: 'none',
+        })
+        .expect(403);
+      await next(kaua, id).expect(403);
+
+      await next(master, id, { round: 1, turnIndex: 0 }).expect(200);
+      // segundo clique com o turno antigo é recusado
+      await next(master, id, { round: 1, turnIndex: 0 }).expect(409);
+      s = await state(master, id);
+      expect(s.combat!.currentCharacterId).toBe(morgana.id);
+      expect(s.logs.at(-1)!.message).toBe(
+        'Fim do turno do Mestre. Vez de Morgana.',
+      );
+
+      // vez da Morgana: Joana espera
+      await joana
+        .post(`/characters/${veu.id}/abilities/${await rosto()}/use`, {
+          rollMode: 'none',
+        })
+        .expect(403);
+      await next(joana, id).expect(403);
+      await kaua
+        .post(`/characters/${morgana.id}/abilities/${await toque()}/use`, {
+          rollMode: 'none',
+        })
+        .expect(200);
+
+      await next(kaua, id).expect(200);
+      expect((await state(master, id)).combat!.currentCharacterId).toBe(veu.id);
+      await next(joana, id).expect(200);
+      s = await state(master, id);
+      expect(s.combat).toMatchObject({ round: 2, currentCharacterId: null });
+      expect(s.logs.at(-1)!.message).toBe(
+        'Fim do turno de Véu. Rodada 2 — vez do Mestre.',
+      );
+
+      // fora de combate todo mundo age livre
+      await master.post(`/campaigns/${id}/combat/end`).expect(200);
+      expect((await state(master, id)).combat).toBeNull();
+      await joana
+        .post(`/characters/${veu.id}/abilities/${await rosto()}/use`, {
+          rollMode: 'none',
+        })
+        .expect(200);
+      await next(master, id).expect(403);
+    });
+
+    it('mestre reordena e quem está com a vez continua com ela', async () => {
+      const { id, morgana, veu } = await activeCampaign();
+      await master.post(`/campaigns/${id}/combat/start`).expect(200);
+      await next(master, id).expect(200); // vez da Morgana
+      await master
+        .put(`/campaigns/${id}/combat/order`, { characterIds: [morgana.id] })
+        .expect(400);
+      await kaua
+        .put(`/campaigns/${id}/combat/order`, {
+          characterIds: [veu.id, morgana.id],
+        })
+        .expect(403);
+      await master
+        .put(`/campaigns/${id}/combat/order`, {
+          characterIds: [veu.id, morgana.id],
+        })
+        .expect(200);
+      const s = await state(master, id);
+      expect(s.combat).toMatchObject({
+        order: [veu.id, morgana.id],
+        turnIndex: 2,
+        currentCharacterId: morgana.id,
+      });
+    });
+
+    it('sangramento: dano e duração só descontam no fim do turno de quem sangra', async () => {
+      const { id, morgana } = await activeCampaign();
+      await master.post(`/campaigns/${id}/combat/start`).expect(200);
+      const add = await master
+        .post(`/characters/${morgana.id}/conditions`, { defId: 'sangrando' })
+        .expect(201);
+      expect((add.body as { log: Log }).log.message).toBe(
+        'Morgana está com Sangrando (3 turnos) — −1 de vida por turno',
+      );
+      const cond = () =>
+        charOf(id, morgana.id).then((c) =>
+          c.conditions.find((x) => x.name === 'Sangrando'),
+        );
+      expect(await cond()).toMatchObject({
+        polarity: 'DEBUFF',
+        turnsLeft: 3,
+        hpPerTurn: -1,
+      });
+
+      await next(master, id).expect(200); // fim do mestre: nada acontece
+      expect((await charOf(id, morgana.id)).hp).toBe(20);
+      expect((await cond())!.turnsLeft).toBe(3);
+
+      await next(kaua, id).expect(200); // fim da Morgana
+      expect((await charOf(id, morgana.id)).hp).toBe(19);
+      expect((await cond())!.turnsLeft).toBe(2);
+      expect((await lastLog(id)).message).toBe(
+        'Fim do turno de Morgana: Morgana sofreu 1 de dano por Sangrando (vida 19/20). Vez de Véu.',
+      );
+
+      // mais 2 turnos da Morgana (3 passes por rodada): acabou
+      for (let i = 0; i < 6; i++) await next(master, id).expect(200);
+      expect((await charOf(id, morgana.id)).hp).toBe(17);
+      expect(await cond()).toBeUndefined();
+      const ended = (await state(master, id)).logs.find((l) =>
+        l.message.includes('Sangrando acabou em Morgana'),
+      )!;
+      expect(ended).toBeDefined();
+
+      // desfazer o último passe traz o sangramento e a vida de volta
+      await master.post(`/logs/${ended.id}/revert`).expect(200);
+      expect((await charOf(id, morgana.id)).hp).toBe(18);
+      expect((await cond())!.turnsLeft).toBe(1);
+      expect((await state(master, id)).combat!.currentCharacterId).toBe(
+        morgana.id,
+      );
+
+      // passes antigos não podem ser desfeitos
+      const old = (await state(master, id)).logs.find(
+        (l) => l.message === 'Fim do turno do Mestre. Vez de Morgana.',
+      )!;
+      await master.post(`/logs/${old.id}/revert`).expect(400);
+    });
+
+    it('incapacitado perde a vez e a condição acaba nesse turno', async () => {
+      const { id, morgana, veu } = await activeCampaign();
+      await master.post(`/campaigns/${id}/combat/start`).expect(200);
+      await master
+        .post(`/characters/${morgana.id}/conditions`, {
+          defId: 'incapacitado',
+        })
+        .expect(201);
+      await next(master, id).expect(200);
+      expect((await state(master, id)).combat!.currentCharacterId).toBe(veu.id);
+      expect((await lastLog(id)).message).toBe(
+        'Fim do turno do Mestre: Morgana perde a vez (Incapacitado) e Incapacitado acabou em Morgana. Vez de Véu.',
+      );
+      expect((await charOf(id, morgana.id)).conditions).toEqual([]);
+    });
+
+    it('condição livre com valores próprios e polaridade', async () => {
+      const { id, veu } = await activeCampaign();
+      await master
+        .post(`/characters/${veu.id}/conditions`, {
+          name: 'Bênção',
+          polarity: 'BUFF',
+          turns: 2,
+          hpPerTurn: 2,
+        })
+        .expect(201);
+      // do catálogo, mas sem prazo (turns: null sobrescreve o padrão)
+      await master
+        .post(`/characters/${veu.id}/conditions`, {
+          defId: 'sangrando',
+          turns: null,
+        })
+        .expect(201);
+      await master.post(`/characters/${veu.id}/conditions`, {}).expect(400);
+      await master
+        .post(`/characters/${veu.id}/conditions`, { defId: 'nao-existe' })
+        .expect(400);
+      expect((await charOf(id, veu.id)).conditions).toMatchObject([
+        { name: 'Bênção', polarity: 'BUFF', turnsLeft: 2, hpPerTurn: 2 },
+        { name: 'Sangrando', turnsLeft: null, hpPerTurn: -1 },
+      ]);
+    });
+  });
+
+  describe('inimigos, invocações e efeitos pendentes', () => {
+    const next = (c: Client, id: string) =>
+      c.post(`/campaigns/${id}/combat/next`);
+    const npcOf = async (campaignId: string, name: string) =>
+      (await state(master, campaignId)).npcs.find((n) => n.name === name);
+    const logById = async (campaignId: string, logId: string) =>
+      (await state(master, campaignId)).logs.find((l) => l.id === logId)!;
+
+    it('condição em invocação desconta no fim do turno do dono', async () => {
+      const { id, morgana } = await activeCampaign();
+      await master
+        .post(`/characters/${morgana.id}/summons`, { name: 'Corvo', hpMax: 5 })
+        .expect(201);
+      const corvo = (await charOf(id, morgana.id)).summons[0];
+      await kaua
+        .post(`/summons/${corvo.id}/conditions`, { defId: 'sangrando' })
+        .expect(403);
+      await master
+        .post(`/summons/${corvo.id}/conditions`, {
+          defId: 'sangrando',
+          turns: 2,
+        })
+        .expect(201);
+
+      await master.post(`/campaigns/${id}/combat/start`).expect(200);
+      await next(master, id).expect(200); // fim do mestre: nada
+      expect((await charOf(id, morgana.id)).summons[0].hp).toBe(5);
+      await next(kaua, id).expect(200); // fim da Morgana
+      let s = (await charOf(id, morgana.id)).summons[0];
+      expect(s.hp).toBe(4);
+      expect(s.conditions[0].turnsLeft).toBe(1);
+      expect((await state(master, id)).logs.at(-1)!.message).toContain(
+        'Corvo sofreu 1 de dano por Sangrando (vida 4/5)',
+      );
+      for (let i = 0; i < 3; i++) await next(master, id).expect(200);
+      s = (await charOf(id, morgana.id)).summons[0];
+      expect(s.hp).toBe(3);
+      expect(s.conditions).toEqual([]);
+    });
+
+    it('mestre controla inimigos; as condições deles descontam no turno do mestre', async () => {
+      const { id } = await activeCampaign();
+      await kaua
+        .post(`/campaigns/${id}/npcs`, { name: 'Goblin', hpMax: 8 })
+        .expect(403);
+      const created = await master
+        .post(`/campaigns/${id}/npcs`, { name: 'Goblin', hpMax: 8 })
+        .expect(201);
+      const goblin = (await npcOf(id, 'Goblin'))!;
+      expect(goblin).toMatchObject({ hp: 8, hpMax: 8, conditions: [] });
+
+      await kaua.post(`/npcs/${goblin.id}/adjust`, { hp: -3 }).expect(403);
+      await master.post(`/npcs/${goblin.id}/adjust`, { hp: -3 }).expect(200);
+      expect((await npcOf(id, 'Goblin'))!.hp).toBe(5);
+
+      await master
+        .post(`/npcs/${goblin.id}/conditions`, { defId: 'queimando' })
+        .expect(201);
+      await master.post(`/campaigns/${id}/combat/start`).expect(200);
+      await next(master, id).expect(200);
+      let g = (await npcOf(id, 'Goblin'))!;
+      expect(g.hp).toBe(3);
+      expect(g.conditions[0].turnsLeft).toBe(1);
+      expect((await state(master, id)).logs.at(-1)!.message).toBe(
+        'Fim do turno do Mestre: Goblin sofreu 2 de dano por Queimando (vida 3/8). Vez de Morgana.',
+      );
+
+      // condição de inimigo: jogador não remove, mestre remove
+      await joana.del(`/conditions/${g.conditions[0].id}`).expect(403);
+      await master.del(`/conditions/${g.conditions[0].id}`).expect(200);
+
+      // remover e desfazer traz o inimigo de volta, com a vida
+      const removed = await master.del(`/npcs/${goblin.id}`).expect(200);
+      expect(await npcOf(id, 'Goblin')).toBeUndefined();
+      await master
+        .post(`/logs/${(removed.body as { log: Log }).log.id}/revert`)
+        .expect(200);
+      g = (await npcOf(id, 'Goblin'))!;
+      expect(g).toMatchObject({ id: goblin.id, hp: 3 });
+
+      // desfazer a criação tira de cena
+      await master
+        .post(`/logs/${(created.body as { log: Log }).log.id}/revert`)
+        .expect(200);
+      expect(await npcOf(id, 'Goblin')).toBeUndefined();
+    });
+
+    it('efeito no alvo usado pelo jogador fica pendente até o mestre aplicar', async () => {
+      const { id, morgana, veu } = await activeCampaign();
+      const serenidade = await ability(
+        t,
+        'mascareiro',
+        'Máscara da Serenidade',
+      );
+      const used = (
+        await joana
+          .post(`/characters/${veu.id}/abilities/${serenidade}/use`, {
+            rollMode: 'none',
+          })
+          .expect(200)
+      ).body as { log: Log };
+      expect(used.log.message).toContain(
+        'aguardando o mestre aplicar Máscara da Serenidade',
+      );
+      expect(used.log.pendingEffect).toEqual({
+        source: 'Véu',
+        conditions: [{ defId: 'mascara-da-serenidade' }],
+      });
+
+      await master
+        .post(`/campaigns/${id}/npcs`, { name: 'Ogro', hpMax: 20 })
+        .expect(201);
+      const ogro = (await npcOf(id, 'Ogro'))!;
+
+      // jogador não aplica; alvo de outra campanha/inexistente é recusado
+      await joana
+        .post(`/logs/${used.log.id}/apply`, { kind: 'npc', id: ogro.id })
+        .expect(403);
+      await master
+        .post(`/logs/${used.log.id}/apply`, {
+          kind: 'npc',
+          id: morgana.id,
+        })
+        .expect(400);
+
+      const applied = (
+        await master
+          .post(`/logs/${used.log.id}/apply`, { kind: 'npc', id: ogro.id })
+          .expect(200)
+      ).body as { log: Log };
+      expect(applied.log.message).toBe(
+        'Máscara da Serenidade, de Véu, aplicada em Ogro',
+      );
+      expect((await npcOf(id, 'Ogro'))!.conditions).toMatchObject([
+        { name: 'Máscara da Serenidade', source: 'Véu' },
+      ]);
+      expect((await logById(id, used.log.id)).pendingEffect).toBeNull();
+      // segundo clique: já foi aplicado
+      await master
+        .post(`/logs/${used.log.id}/apply`, { kind: 'npc', id: ogro.id })
+        .expect(400);
+
+      // desfazer a aplicação tira a máscara e devolve o pendente
+      await master.post(`/logs/${applied.log.id}/revert`).expect(200);
+      expect((await npcOf(id, 'Ogro'))!.conditions).toEqual([]);
+      expect((await logById(id, used.log.id)).pendingEffect).not.toBeNull();
+
+      // agora em alguém da party
+      await master
+        .post(`/logs/${used.log.id}/apply`, {
+          kind: 'character',
+          id: morgana.id,
+        })
+        .expect(200);
+      expect(
+        (await charOf(id, morgana.id)).conditions.map((c) => c.name),
+      ).toEqual(['Máscara da Serenidade']);
+    });
+
+    it('mestre pode descartar o efeito pendente', async () => {
+      const { id, veu } = await activeCampaign();
+      const vazia = await ability(t, 'mascareiro', 'Máscara Vazia');
+      const used = (
+        await joana
+          .post(`/characters/${veu.id}/abilities/${vazia}/use`, {
+            rollMode: 'none',
+          })
+          .expect(200)
+      ).body as { log: Log };
+      await joana.del(`/logs/${used.log.id}/pending`).expect(403);
+      await master.del(`/logs/${used.log.id}/pending`).expect(200);
+      expect((await logById(id, used.log.id)).pendingEffect).toBeNull();
+      await master.del(`/logs/${used.log.id}/pending`).expect(400);
+    });
+
+    it('crítico com condição vira pendente e, aplicado, tira a vez do alvo', async () => {
+      const { id, morgana } = await activeCampaign();
+      // Dilatação 20 → congelado no tempo (o jogador do Tecelão é a Joana)
+      const tecelao = await t.prisma.character.update({
+        where: { campaignId_userId: { campaignId: id, userId: joanaId } },
+        data: { classId: 'tecelao-do-tempo' },
+      });
+      const dilatacao = await ability(t, 'tecelao-do-tempo', 'Dilatação');
+      const used = (
+        await joana
+          .post(`/characters/${tecelao.id}/abilities/${dilatacao}/use`, {
+            rollMode: 'manual',
+            roll: 20,
+          })
+          .expect(200)
+      ).body as { log: Log };
+      expect(used.log.message).toContain('tempo congela brevemente');
+      expect(used.log.message).toContain(
+        'aguardando o mestre aplicar Congelado no tempo',
+      );
+
+      await master
+        .post(`/logs/${used.log.id}/apply`, {
+          kind: 'character',
+          id: morgana.id,
+        })
+        .expect(200);
+      await master.post(`/campaigns/${id}/combat/start`).expect(200);
+      await next(master, id).expect(200);
+      const s = await state(master, id);
+      expect(s.combat!.currentCharacterId).toBe(tecelao.id);
+      expect(s.logs.at(-1)!.message).toContain(
+        'Morgana perde a vez (Congelado no tempo)',
+      );
+
+      // sem crítico na faixa: nada pendente
+      const plain = (
+        await joana
+          .post(`/characters/${tecelao.id}/abilities/${dilatacao}/use`, {
+            rollMode: 'manual',
+            roll: 5,
+          })
+          .expect(200)
+      ).body as { log: Log };
+      expect(plain.log.pendingEffect).toBeNull();
+    });
+  });
 
   describe('imagens', () => {
     it('mestre envia, mostra e oculta; jogador vê pelo estado', async () => {

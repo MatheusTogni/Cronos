@@ -14,3 +14,14 @@ export class ClassesController {
     });
   }
 }
+
+/** Catálogo de condições (efeitos de status) — qualquer usuário logado pode ler. */
+@Controller('conditions')
+export class ConditionsController {
+  constructor(private readonly prisma: PrismaService) {}
+
+  @Get()
+  list() {
+    return this.prisma.conditionDef.findMany({ orderBy: { sortOrder: 'asc' } });
+  }
+}

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConditionChip from '@/components/ConditionChip.vue'
 import StatBar from '@/components/StatBar.vue'
 import type { Character, CharacterClass } from '@/types/api'
 
@@ -35,6 +36,7 @@ const emit = defineEmits<{ removeCondition: [id: string] }>()
           <template v-if="playerName"> · {{ playerName }}</template>
         </div>
       </div>
+      <v-chip v-if="highlight" color="secondary" size="small" variant="flat" prepend-icon="mdi-sword">Vez</v-chip>
       <v-chip v-if="character.hp === 0" color="error" size="small" variant="flat" prepend-icon="mdi-skull">
         Caído
       </v-chip>
@@ -46,18 +48,13 @@ const emit = defineEmits<{ removeCondition: [id: string] }>()
     </div>
 
     <div v-if="character.conditions.length" class="chips">
-      <v-chip
+      <ConditionChip
         v-for="c in character.conditions"
         :key="c.id"
-        size="small"
-        color="warning"
-        variant="tonal"
+        :condition="c"
         :closable="canRemoveConditions"
-        :title="[c.description, c.duration, c.source && `por ${c.source}`].filter(Boolean).join(' · ')"
-        @click:close="emit('removeCondition', c.id)"
-      >
-        {{ c.name }}<template v-if="c.duration"> ({{ c.duration }})</template>
-      </v-chip>
+        @close="emit('removeCondition', c.id)"
+      />
     </div>
 
     <div v-if="character.summons.length" class="summons">
@@ -66,6 +63,16 @@ const emit = defineEmits<{ removeCondition: [id: string] }>()
         <span class="summon-name">{{ s.name }}</span>
         <span class="summon-hp">{{ s.hp }}/{{ s.hpMax }}</span>
         <slot name="summon-actions" :summon="s" />
+        <div v-if="s.conditions.length" class="summon-chips">
+          <ConditionChip
+            v-for="c in s.conditions"
+            :key="c.id"
+            :condition="c"
+            size="x-small"
+            :closable="canRemoveConditions"
+            @close="emit('removeCondition', c.id)"
+          />
+        </div>
       </div>
     </div>
 
@@ -170,8 +177,17 @@ const emit = defineEmits<{ removeCondition: [id: string] }>()
   gap: 4px;
 }
 
+.summon-chips {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-left: 24px;
+}
+
 .summon {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   font-size: 0.95rem;

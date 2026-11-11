@@ -2,10 +2,14 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AdjustDialog from '@/components/AdjustDialog.vue'
+import ApplyEffectDialog from '@/components/ApplyEffectDialog.vue'
 import CharacterCard from '@/components/CharacterCard.vue'
+import CombatPanel from '@/components/CombatPanel.vue'
+import ConditionDialog from '@/components/ConditionDialog.vue'
 import DiceRoller from '@/components/DiceRoller.vue'
 import ImagesPanel from '@/components/ImagesPanel.vue'
 import LogFeed from '@/components/LogFeed.vue'
+import NpcCard from '@/components/NpcCard.vue'
 import QuickFormDialog from '@/components/QuickFormDialog.vue'
 import { api } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
@@ -18,7 +22,9 @@ import {
   STATUS_LABEL,
   type ActionResult,
   type Character,
+  type ConditionTarget,
   type LogEntry,
+  type Npc,
   type Summon,
 } from '@/types/api'
 import type { AdjustKind, QuickField } from '@/types/ui'
@@ -105,20 +111,22 @@ watch(
   },
 )
 
-type FormKind = 'condition' | 'item' | 'summon' | 'sheet' | 'summonDamage' | 'summonHeal'
+// condição tem diálogo próprio (catálogo, turnos, vida por turno), para
+// personagem, invocação ou inimigo
+const conditionOpen = ref(false)
+const conditionTarget = ref<ConditionTarget | null>(null)
+function openCondition(t: ConditionTarget) {
+  conditionTarget.value = t
+  conditionOpen.value = true
+}
+
+type FormKind = 'item' | 'summon' | 'sheet' | 'summonDamage' | 'summonHeal' | 'npcNew' | 'npcDamage' | 'npcHeal'
 const formOpen = ref(false)
-const formKind = ref<FormKind>('condition')
+const formKind = ref<FormKind>('item')
 const formSummon = ref<Summon | null>(null)
+const formNpc = ref<Npc | null>(null)
 
 const FORMS = computed<Record<FormKind, { title: string; fields: QuickField[]; initial?: Record<string, string | number | null> }>>(() => ({
-  condition: {
-    title: `Condição em ${target.value?.name ?? ''}`,
-    fields: [
-      { key: 'name', label: 'Condição', required: true, maxlength: 60, hint: 'ex.: Envenenado, Atordoado' },
-      { key: 'duration', label: 'Duração', maxlength: 60, hint: 'ex.: 2 turnos' },
-      { key: 'description', label: 'Detalhes', maxlength: 300 },
-    ],
-  },
   item: {
     title: `Item para ${target.value?.name ?? ''}`,
     fields: [
@@ -159,30 +167,83 @@ const FORMS = computed<Record<FormKind, { title: string; fields: QuickField[]; i
       { key: 'reason', label: 'Motivo', maxlength: 120 },
     ],
   },
+  npcNew: {
+    title: 'Novo inimigo',
+    fields: [
+      { key: 'name', label: 'Nome', required: true, maxlength: 60, hint: 'ex.: Goblin, Guarda da ponte' },
+      { key: 'hpMax', label: 'Vida', type: 'number', required: true, min: 1, max: 9999 },
+    ],
+  },
+  npcDamage: {
+    title: `Dano em ${formNpc.value?.name ?? ''}`,
+    fields: [
+      { key: 'hp', label: 'Dano', type: 'number', required: true, min: 1, max: 9999 },
+      { key: 'reason', label: 'Motivo', maxlength: 120 },
+    ],
+  },
+  npcHeal: {
+    title: `Curar ${formNpc.value?.name ?? ''}`,
+    fields: [
+      { key: 'hp', label: 'Vida recuperada', type: 'number', required: true, min: 1, max: 9999 },
+      { key: 'reason', label: 'Motivo', maxlength: 120 },
+    ],
+  },
 }))
 
-function openForm(c: Character, kind: FormKind, summon: Summon | null = null) {
+function openForm(c: Character | null, kind: FormKind, summon: Summon | null = null, npc: Npc | null = null) {
   target.value = c
   formSummon.value = summon
+  formNpc.value = npc
   formKind.value = kind
   formOpen.value = true
 }
 
 async function submitForm(values: Record<string, string | number>) {
   const c = target.value
-  if (!c) return
   const s = formSummon.value
+  const n = formNpc.value
+  const forCharacter = (fn: (c: Character) => Promise<{ data: ActionResult }>) => () =>
+    c ? fn(c) : Promise.reject(new Error('Personagem não encontrado'))
   const request = {
-    condition: () => api.post<ActionResult>(`/characters/${c.id}/conditions`, values),
-    item: () => api.post<ActionResult>(`/characters/${c.id}/items`, values),
-    summon: () => api.post<ActionResult>(`/characters/${c.id}/summons`, values),
-    sheet: () => api.patch<ActionResult>(`/characters/${c.id}`, values),
+    item: forCharacter((c) => api.post<ActionResult>(`/characters/${c.id}/items`, values)),
+    summon: forCharacter((c) => api.post<ActionResult>(`/characters/${c.id}/summons`, values)),
+    sheet: forCharacter((c) => api.patch<ActionResult>(`/characters/${c.id}`, values)),
     summonDamage: () => api.post<ActionResult>(`/summons/${s?.id}/adjust`, { ...values, hp: -Number(values.hp) }),
     summonHeal: () => api.post<ActionResult>(`/summons/${s?.id}/adjust`, values),
+    npcNew: () => api.post<ActionResult>(`/campaigns/${id.value}/npcs`, values),
+    npcDamage: () => api.post<ActionResult>(`/npcs/${n?.id}/adjust`, { ...values, hp: -Number(values.hp) }),
+    npcHeal: () => api.post<ActionResult>(`/npcs/${n?.id}/adjust`, values),
   }[formKind.value]
   const ok = await campaign.act(request)
   if (ok) formOpen.value = false
 }
+
+async function removeNpc(n: Npc) {
+  const ok = await confirm.ask({
+    title: `Tirar ${n.name} de cena?`,
+    text: 'O inimigo e as condições dele saem da mesa. Dá para desfazer pelo log.',
+    confirmLabel: 'Tirar de cena',
+    icon: 'mdi-account-remove',
+  })
+  if (ok) await campaign.act(() => api.delete<ActionResult>(`/npcs/${n.id}`))
+}
+
+// ── efeito pendente ("Aplicar em…") ──
+const applyOpen = ref(false)
+const applyEntry = ref<LogEntry | null>(null)
+function openApply(entry: LogEntry) {
+  applyEntry.value = entry
+  applyOpen.value = true
+}
+watch(
+  () => campaign.logs,
+  (list) => {
+    if (applyEntry.value) applyEntry.value = list.find((l) => l.id === applyEntry.value!.id) ?? null
+  },
+  { deep: true },
+)
+const discardPending = (entry: LogEntry) =>
+  campaign.act(() => api.delete(`/logs/${entry.id}/pending`).then(() => ({ data: null })))
 
 const removeCondition = (conditionId: string) =>
   campaign.act(() => api.delete<ActionResult>(`/conditions/${conditionId}`))
@@ -298,42 +359,84 @@ const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/
 
           <!-- aventura / encerrada -->
           <div v-else class="table-grid">
-            <div class="party">
-              <CharacterCard
-                v-for="c in state.characters"
-                :key="c.id"
-                :character="c"
-                :cls="classes.byId(c.classId)"
-                :player-name="campaign.playerName(c.userId)"
-                :can-remove-conditions="state.status === 'ACTIVE'"
-                @remove-condition="removeCondition"
-              >
-                <template v-if="state.status === 'ACTIVE'" #summon-actions="{ summon }">
-                  <v-btn icon="mdi-sword-cross" size="x-small" variant="text" color="error" :aria-label="`Dano em ${summon.name}`" @click="openForm(c, 'summonDamage', summon)" />
-                  <v-btn icon="mdi-heart-plus" size="x-small" variant="text" color="success" :aria-label="`Curar ${summon.name}`" @click="openForm(c, 'summonHeal', summon)" />
-                  <v-btn icon="mdi-close" size="x-small" variant="text" :aria-label="`Remover ${summon.name}`" @click="removeSummon(summon.id)" />
-                </template>
-                <template v-if="state.status === 'ACTIVE'" #actions>
-                  <v-btn size="small" color="error" variant="tonal" prepend-icon="mdi-sword-cross" @click="adjust(c, 'damage')">Dano</v-btn>
-                  <v-btn size="small" color="success" variant="tonal" prepend-icon="mdi-heart-plus" @click="adjust(c, 'heal')">Cura</v-btn>
-                  <v-btn size="small" color="info" variant="tonal" prepend-icon="mdi-water" @click="adjust(c, 'mana')">Mana</v-btn>
-                  <v-btn size="small" color="secondary" variant="tonal" prepend-icon="mdi-star-four-points" @click="adjust(c, 'xp')">XP</v-btn>
-                  <v-menu>
-                    <template #activator="{ props }">
-                      <v-btn v-bind="props" size="small" variant="text" icon="mdi-dots-horizontal" :aria-label="`Mais ações para ${c.name}`" />
+            <div class="main-col">
+              <section v-if="state.status === 'ACTIVE' || state.npcs.length" class="enemies">
+                <div class="section-head">
+                  <span class="side-title">Inimigos</span>
+                  <v-btn
+                    v-if="state.status === 'ACTIVE'"
+                    size="small"
+                    variant="tonal"
+                    color="error"
+                    prepend-icon="mdi-plus"
+                    @click="openForm(null, 'npcNew')"
+                  >
+                    Novo inimigo
+                  </v-btn>
+                </div>
+                <div v-if="!state.npcs.length" class="empty">Nenhum inimigo em cena.</div>
+                <div class="party">
+                  <NpcCard
+                    v-for="n in state.npcs"
+                    :key="n.id"
+                    :npc="n"
+                    :can-remove-conditions="state.status === 'ACTIVE'"
+                    @remove-condition="removeCondition"
+                  >
+                    <template v-if="state.status === 'ACTIVE'" #actions>
+                      <v-btn size="small" color="error" variant="tonal" prepend-icon="mdi-sword-cross" @click="openForm(null, 'npcDamage', null, n)">Dano</v-btn>
+                      <v-btn size="small" color="success" variant="tonal" icon="mdi-heart-plus" :aria-label="`Curar ${n.name}`" @click="openForm(null, 'npcHeal', null, n)" />
+                      <v-btn size="small" color="warning" variant="tonal" icon="mdi-alert-decagram" :aria-label="`Condição em ${n.name}`" @click="openCondition({ kind: 'npc', id: n.id, name: n.name })" />
+                      <v-btn size="small" variant="text" icon="mdi-close" :aria-label="`Tirar ${n.name} de cena`" @click="removeNpc(n)" />
                     </template>
-                    <v-list density="compact">
-                      <v-list-item prepend-icon="mdi-alert-decagram" title="Condição" @click="openForm(c, 'condition')" />
-                      <v-list-item prepend-icon="mdi-bag-personal" title="Dar item" @click="openForm(c, 'item')" />
-                      <v-list-item prepend-icon="mdi-skull" title="Criatura" @click="openForm(c, 'summon')" />
-                      <v-list-item prepend-icon="mdi-pencil" title="Editar ficha" @click="openForm(c, 'sheet')" />
-                    </v-list>
-                  </v-menu>
-                </template>
-              </CharacterCard>
+                  </NpcCard>
+                </div>
+              </section>
+
+              <div class="party">
+                <CharacterCard
+                  v-for="c in state.characters"
+                  :key="c.id"
+                  :character="c"
+                  :cls="classes.byId(c.classId)"
+                  :player-name="campaign.playerName(c.userId)"
+                  :highlight="state.combat?.currentCharacterId === c.id"
+                  :can-remove-conditions="state.status === 'ACTIVE'"
+                  @remove-condition="removeCondition"
+                >
+                  <template v-if="state.status === 'ACTIVE'" #summon-actions="{ summon }">
+                    <v-btn icon="mdi-sword-cross" size="x-small" variant="text" color="error" :aria-label="`Dano em ${summon.name}`" @click="openForm(c, 'summonDamage', summon)" />
+                    <v-btn icon="mdi-heart-plus" size="x-small" variant="text" color="success" :aria-label="`Curar ${summon.name}`" @click="openForm(c, 'summonHeal', summon)" />
+                    <v-btn icon="mdi-alert-decagram" size="x-small" variant="text" color="warning" :aria-label="`Condição em ${summon.name}`" @click="openCondition({ kind: 'summon', id: summon.id, name: summon.name })" />
+                    <v-btn icon="mdi-close" size="x-small" variant="text" :aria-label="`Remover ${summon.name}`" @click="removeSummon(summon.id)" />
+                  </template>
+                  <template v-if="state.status === 'ACTIVE'" #actions>
+                    <v-btn size="small" color="error" variant="tonal" prepend-icon="mdi-sword-cross" @click="adjust(c, 'damage')">Dano</v-btn>
+                    <v-btn size="small" color="success" variant="tonal" prepend-icon="mdi-heart-plus" @click="adjust(c, 'heal')">Cura</v-btn>
+                    <v-btn size="small" color="info" variant="tonal" prepend-icon="mdi-water" @click="adjust(c, 'mana')">Mana</v-btn>
+                    <v-btn size="small" color="secondary" variant="tonal" prepend-icon="mdi-star-four-points" @click="adjust(c, 'xp')">XP</v-btn>
+                    <v-menu>
+                      <template #activator="{ props }">
+                        <v-btn v-bind="props" size="small" variant="text" icon="mdi-dots-horizontal" :aria-label="`Mais ações para ${c.name}`" />
+                      </template>
+                      <v-list density="compact">
+                        <v-list-item prepend-icon="mdi-alert-decagram" title="Condição" @click="openCondition({ kind: 'character', id: c.id, name: c.name })" />
+                        <v-list-item prepend-icon="mdi-bag-personal" title="Dar item" @click="openForm(c, 'item')" />
+                        <v-list-item prepend-icon="mdi-skull" title="Criatura" @click="openForm(c, 'summon')" />
+                        <v-list-item prepend-icon="mdi-pencil" title="Editar ficha" @click="openForm(c, 'sheet')" />
+                      </v-list>
+                    </v-menu>
+                  </template>
+                </CharacterCard>
+              </div>
             </div>
 
             <aside class="side">
+              <v-card v-if="state.status === 'ACTIVE'" class="card-frame pa-4" color="surface">
+                <div class="side-title">Combate</div>
+                <CombatPanel />
+              </v-card>
+
               <v-card v-if="state.status === 'ACTIVE'" class="card-frame pa-4" color="surface">
                 <div class="side-title">Narrar</div>
                 <div class="note-row">
@@ -356,7 +459,15 @@ const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/
 
               <v-card class="card-frame pa-4" color="surface">
                 <div class="side-title">Log da mesa</div>
-                <LogFeed :logs="campaign.logs" :can-revert="state.status === 'ACTIVE'" max-height="55vh" @revert="revert" />
+                <LogFeed
+                  :logs="campaign.logs"
+                  :can-revert="state.status === 'ACTIVE'"
+                  :can-apply="state.status === 'ACTIVE'"
+                  max-height="55vh"
+                  @revert="revert"
+                  @apply="openApply"
+                  @discard="discardPending"
+                />
               </v-card>
 
               <div v-if="state.status === 'ACTIVE'">
@@ -381,6 +492,8 @@ const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/
     </template>
 
     <AdjustDialog v-model="adjustOpen" :character="target" :kind="adjustKind" />
+    <ConditionDialog v-model="conditionOpen" :target="conditionTarget" />
+    <ApplyEffectDialog v-model="applyOpen" :entry="applyEntry" />
     <QuickFormDialog
       v-model="formOpen"
       :title="FORMS[formKind].title"
@@ -463,6 +576,24 @@ const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/
   .table-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.main-col {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.section-head .side-title {
+  margin-bottom: 0;
 }
 
 .party {

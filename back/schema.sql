@@ -2,7 +2,7 @@
 -- Executar manualmente contra o banco (desenvolvimento e produção) antes de subir a API.
 -- Não há migrations automáticas: o Prisma só lê e grava, não cria tabelas.
 -- O banco precisa ser UTF8 (o log usa caracteres como "−" e "→").
--- Depois rode `npm run db:seed` para carregar as 9 classes.
+-- Depois rode `npm run db:seed` para carregar as 9 classes e o catálogo de condições.
 -- Se mudar o prisma/schema.prisma, aplique o ALTER correspondente no banco e atualize este arquivo.
 
 -- CreateEnum
@@ -18,7 +18,10 @@ CREATE TYPE "AbilityKind" AS ENUM ('BASIC', 'SKILL');
 CREATE TYPE "AbilityEffect" AS ENUM ('SUMMON', 'SACRIFICE_SUMMON', 'SELF_CONDITION', 'TARGET_CONDITION');
 
 -- CreateEnum
-CREATE TYPE "LogType" AS ENUM ('DAMAGE', 'HEAL', 'MANA', 'XP', 'LEVEL', 'ABILITY_USED', 'DICE_ROLL', 'CONDITION_ADDED', 'CONDITION_REMOVED', 'SUMMON_CREATED', 'SUMMON_REMOVED', 'SUMMON_UPDATED', 'ITEM_ADDED', 'ITEM_REMOVED', 'ITEM_UPDATED', 'CAMPAIGN', 'NOTE');
+CREATE TYPE "LogType" AS ENUM ('DAMAGE', 'HEAL', 'MANA', 'XP', 'LEVEL', 'ABILITY_USED', 'DICE_ROLL', 'CONDITION_ADDED', 'CONDITION_REMOVED', 'SUMMON_CREATED', 'SUMMON_REMOVED', 'SUMMON_UPDATED', 'ITEM_ADDED', 'ITEM_REMOVED', 'ITEM_UPDATED', 'CAMPAIGN', 'NOTE', 'TURN', 'NPC_CREATED', 'NPC_UPDATED', 'NPC_REMOVED');
+
+-- CreateEnum
+CREATE TYPE "ConditionPolarity" AS ENUM ('BUFF', 'DEBUFF', 'NEUTRAL');
 
 -- CreateTable
 CREATE TABLE "users" (
@@ -45,6 +48,10 @@ CREATE TABLE "campaigns" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "startedAt" TIMESTAMP(3),
     "endedAt" TIMESTAMP(3),
+    "inCombat" BOOLEAN NOT NULL DEFAULT false,
+    "round" INTEGER NOT NULL DEFAULT 0,
+    "turnIndex" INTEGER NOT NULL DEFAULT 0,
+    "turnOrder" TEXT[] DEFAULT ARRAY[]::TEXT[],
 
     CONSTRAINT "campaigns_pkey" PRIMARY KEY ("id")
 );
@@ -128,15 +135,49 @@ CREATE TABLE "summons" (
 );
 
 -- CreateTable
+CREATE TABLE "npcs" (
+    "id" TEXT NOT NULL,
+    "campaignId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "hp" INTEGER NOT NULL,
+    "hpMax" INTEGER NOT NULL,
+    "notes" TEXT NOT NULL DEFAULT '',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "npcs_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "condition_defs" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "description" TEXT NOT NULL,
+    "polarity" "ConditionPolarity" NOT NULL DEFAULT 'NEUTRAL',
+    "turns" INTEGER,
+    "hpPerTurn" INTEGER NOT NULL DEFAULT 0,
+    "skipsTurn" BOOLEAN NOT NULL DEFAULT false,
+    "exclusiveGroup" TEXT,
+    "sortOrder" INTEGER NOT NULL DEFAULT 0,
+
+    CONSTRAINT "condition_defs_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "conditions" (
     "id" TEXT NOT NULL,
     "characterId" TEXT,
     "summonId" TEXT,
+    "npcId" TEXT,
+    "defId" TEXT,
     "name" TEXT NOT NULL,
     "description" TEXT,
     "source" TEXT,
     "exclusiveGroup" TEXT,
     "duration" TEXT,
+    "polarity" "ConditionPolarity" NOT NULL DEFAULT 'NEUTRAL',
+    "turnsLeft" INTEGER,
+    "hpPerTurn" INTEGER NOT NULL DEFAULT 0,
+    "skipsTurn" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "conditions_pkey" PRIMARY KEY ("id")
@@ -176,6 +217,7 @@ CREATE TABLE "log_entries" (
     "message" TEXT NOT NULL,
     "delta" JSONB,
     "roll" INTEGER,
+    "pendingEffect" JSONB,
     "revertedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -225,10 +267,19 @@ ALTER TABLE "characters" ADD CONSTRAINT "characters_classId_fkey" FOREIGN KEY ("
 ALTER TABLE "summons" ADD CONSTRAINT "summons_characterId_fkey" FOREIGN KEY ("characterId") REFERENCES "characters"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "npcs" ADD CONSTRAINT "npcs_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "conditions" ADD CONSTRAINT "conditions_characterId_fkey" FOREIGN KEY ("characterId") REFERENCES "characters"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "conditions" ADD CONSTRAINT "conditions_summonId_fkey" FOREIGN KEY ("summonId") REFERENCES "summons"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "conditions" ADD CONSTRAINT "conditions_npcId_fkey" FOREIGN KEY ("npcId") REFERENCES "npcs"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "conditions" ADD CONSTRAINT "conditions_defId_fkey" FOREIGN KEY ("defId") REFERENCES "condition_defs"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "inventory_items" ADD CONSTRAINT "inventory_items_characterId_fkey" FOREIGN KEY ("characterId") REFERENCES "characters"("id") ON DELETE CASCADE ON UPDATE CASCADE;

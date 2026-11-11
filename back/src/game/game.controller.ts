@@ -7,23 +7,31 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
 } from '@nestjs/common';
 import type { AuthUser } from '../auth/auth-user';
 import { CurrentUser } from '../auth/decorators';
 import {
   AdjustDto,
   AdjustSummonDto,
+  ApplyPendingDto,
   CreateConditionDto,
   CreateItemDto,
+  CreateNpcDto,
   CreateSummonDto,
+  NextTurnDto,
   NoteDto,
   RollDto,
+  TurnOrderDto,
   UpdateCharacterDto,
   UpdateItemDto,
+  UpdateNpcDto,
   UpdateSummonDto,
   UseAbilityDto,
 } from './dto';
+import { CombatService } from './combat.service';
 import { GameService } from './game.service';
+import { NpcsService } from './npcs.service';
 
 const Id = () => new ParseUUIDPipe({ version: '4' });
 
@@ -33,7 +41,11 @@ const Id = () => new ParseUUIDPipe({ version: '4' });
  */
 @Controller()
 export class GameController {
-  constructor(private readonly game: GameService) {}
+  constructor(
+    private readonly game: GameService,
+    private readonly combat: CombatService,
+    private readonly npcs: NpcsService,
+  ) {}
 
   // ── personagem ──
 
@@ -97,9 +109,62 @@ export class GameController {
     return this.game.adjustSummon(id, dto, user);
   }
 
+  @Post('summons/:id/conditions')
+  createSummonCondition(
+    @Param('id', Id()) id: string,
+    @Body() dto: CreateConditionDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.game.createSummonCondition(id, dto, user);
+  }
+
   @Delete('summons/:id')
   removeSummon(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
     return this.game.removeSummon(id, user);
+  }
+
+  // ── inimigos / NPCs (só o mestre) ──
+
+  @Post('campaigns/:id/npcs')
+  createNpc(
+    @Param('id', Id()) id: string,
+    @Body() dto: CreateNpcDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.npcs.create(id, dto, user);
+  }
+
+  @Patch('npcs/:id')
+  updateNpc(
+    @Param('id', Id()) id: string,
+    @Body() dto: UpdateNpcDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.npcs.update(id, dto, user);
+  }
+
+  @Post('npcs/:id/adjust')
+  @HttpCode(200)
+  adjustNpc(
+    @Param('id', Id()) id: string,
+    @Body() dto: AdjustSummonDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.npcs.adjust(id, dto, user);
+  }
+
+  @Delete('npcs/:id')
+  removeNpc(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
+    return this.npcs.remove(id, user);
+  }
+
+  @Post('npcs/:id/conditions')
+  createNpcCondition(
+    @Param('id', Id()) id: string,
+    @Body() dto: CreateConditionDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.npcs.addCondition(id, dto, user);
   }
 
   // ── condições ──
@@ -164,6 +229,56 @@ export class GameController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.game.note(id, dto, user);
+  }
+
+  // ── combate (turnos) ──
+
+  @Post('campaigns/:id/combat/start')
+  @HttpCode(200)
+  startCombat(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
+    return this.combat.start(id, user);
+  }
+
+  @Post('campaigns/:id/combat/end')
+  @HttpCode(200)
+  endCombat(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
+    return this.combat.end(id, user);
+  }
+
+  @Post('campaigns/:id/combat/next')
+  @HttpCode(200)
+  nextTurn(
+    @Param('id', Id()) id: string,
+    @Body() dto: NextTurnDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.combat.next(id, dto, user);
+  }
+
+  @Put('campaigns/:id/combat/order')
+  turnOrder(
+    @Param('id', Id()) id: string,
+    @Body() dto: TurnOrderDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.combat.setOrder(id, dto, user);
+  }
+
+  // ── efeito pendente ("Aplicar em…") ──
+
+  @Post('logs/:id/apply')
+  @HttpCode(200)
+  applyPending(
+    @Param('id', Id()) id: string,
+    @Body() dto: ApplyPendingDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.game.applyPending(id, dto, user);
+  }
+
+  @Delete('logs/:id/pending')
+  discardPending(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
+    return this.game.discardPending(id, user);
   }
 
   @Post('logs/:id/revert')

@@ -6,7 +6,9 @@ import DiceRoller from '@/components/DiceRoller.vue'
 import ImageOverlay from '@/components/ImageOverlay.vue'
 import LogFeed from '@/components/LogFeed.vue'
 import MySheet from '@/components/MySheet.vue'
+import NpcCard from '@/components/NpcCard.vue'
 import PlayerLobby from '@/components/PlayerLobby.vue'
+import TurnBar from '@/components/TurnBar.vue'
 import { useCampaignStore } from '@/stores/campaign'
 import { useClassesStore } from '@/stores/classes'
 import { useNotifyStore } from '@/stores/notify'
@@ -48,6 +50,14 @@ watch(
       tab.value = 'ficha'
       notify.success('A aventura começou!')
     }
+  },
+)
+
+// chegou a vez do jogador no combate
+watch(
+  () => campaign.isMyTurn,
+  (mine, before) => {
+    if (mine && !before) notify.success('Sua vez!')
   },
 )
 
@@ -105,6 +115,7 @@ watch(tab, (t) => {
 
       <!-- aventura -->
       <template v-else-if="state.status === 'ACTIVE'">
+        <TurnBar />
         <v-tabs v-model="tab" color="secondary" grow class="mb-4">
           <v-tab value="ficha" prepend-icon="mdi-card-account-details">Ficha</v-tab>
           <v-tab value="party" prepend-icon="mdi-account-group">Party</v-tab>
@@ -121,6 +132,13 @@ watch(tab, (t) => {
           </v-window-item>
 
           <v-window-item value="party">
+            <template v-if="state.npcs.length">
+              <div class="side-title">Inimigos</div>
+              <div class="party mb-4">
+                <NpcCard v-for="n in state.npcs" :key="n.id" :npc="n" />
+              </div>
+              <div class="side-title">Party</div>
+            </template>
             <div class="party">
               <CharacterCard
                 v-for="c in others"
@@ -128,6 +146,7 @@ watch(tab, (t) => {
                 :character="c"
                 :cls="classes.byId(c.classId)"
                 :player-name="campaign.playerName(c.userId)"
+                :highlight="state.combat?.currentCharacterId === c.id"
               />
               <div v-if="!others.length" class="empty">Você está sozinho nesta aventura.</div>
             </div>

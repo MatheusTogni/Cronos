@@ -1,5 +1,6 @@
 /**
- * Carrega as classes de `prisma/seed/classes.json` (transcritas das fichas em /Classes).
+ * Carrega o catálogo de condições (`prisma/seed/conditions.json`) e as classes
+ * de `prisma/seed/classes.json` (transcritas das fichas em /Classes).
  * Idempotente: pode rodar quantas vezes quiser — atualiza o que mudou e remove
  * habilidades que saíram do JSON.
  *
@@ -11,6 +12,7 @@ import { join } from 'node:path';
 import {
   AbilityEffect,
   AbilityKind,
+  ConditionPolarity,
   Prisma,
   PrismaClient,
 } from '@prisma/client';
@@ -42,12 +44,53 @@ interface SeedClass {
   abilities: SeedAbility[];
 }
 
+interface SeedCondition {
+  id: string;
+  name: string;
+  description: string;
+  polarity: ConditionPolarity;
+  turns?: number;
+  hpPerTurn?: number;
+  skipsTurn?: boolean;
+  exclusiveGroup?: string;
+}
+
 const prisma = new PrismaClient({ datasourceUrl: databaseUrl() });
 
 const json = (v: unknown) =>
   v === undefined ? Prisma.DbNull : (v as Prisma.InputJsonValue);
 
+async function seedConditions() {
+  const file = join(__dirname, 'seed', 'conditions.json');
+  const defs = JSON.parse(readFileSync(file, 'utf8')) as SeedCondition[];
+  await prisma.$transaction(async (tx) => {
+    for (const [i, d] of defs.entries()) {
+      const data = {
+        name: d.name,
+        description: d.description,
+        polarity: d.polarity,
+        turns: d.turns ?? null,
+        hpPerTurn: d.hpPerTurn ?? 0,
+        skipsTurn: d.skipsTurn ?? false,
+        exclusiveGroup: d.exclusiveGroup ?? null,
+        sortOrder: i,
+      };
+      await tx.conditionDef.upsert({
+        where: { id: d.id },
+        create: { id: d.id, ...data },
+        update: data,
+      });
+    }
+    await tx.conditionDef.deleteMany({
+      where: { id: { notIn: defs.map((d) => d.id) } },
+    });
+  });
+  console.log(`✔ ${defs.length} condições no catálogo`);
+}
+
 async function main() {
+  await seedConditions();
+
   const file = join(__dirname, 'seed', 'classes.json');
   const classes = JSON.parse(readFileSync(file, 'utf8')) as SeedClass[];
 

@@ -50,6 +50,17 @@ enum LogType {
   ITEM_UPDATED
   CAMPAIGN
   NOTE
+  TURN
+  NPC_CREATED
+  NPC_UPDATED
+  NPC_REMOVED
+}
+
+/// Se a condição ajuda (BUFF), atrapalha (DEBUFF) ou depende do alvo (NEUTRAL).
+enum ConditionPolarity {
+  BUFF
+  DEBUFF
+  NEUTRAL
 }
 
 model User {
@@ -81,11 +92,20 @@ model Campaign {
   startedAt    DateTime?
   endedAt      DateTime?
 
+  /// Combate (modo de turnos), ligado e desligado pelo mestre.
+  inCombat  Boolean  @default(false)
+  round     Int      @default(0)
+  /// 0 = turno do mestre; i > 0 = personagem turnOrder[i - 1].
+  turnIndex Int      @default(0)
+  /// Ordem dos personagens no combate (ids). O mestre sempre abre a rodada.
+  turnOrder String[] @default([])
+
   master     User             @relation(fields: [masterId], references: [id])
   shownImage CampaignImage?   @relation("ShownImage", fields: [shownImageId], references: [id], onDelete: SetNull)
   images     CampaignImage[]  @relation("CampaignImages")
   players    CampaignPlayer[]
   characters Character[]
+  npcs       Npc[]
   logEntries LogEntry[]
 
   @@map("campaigns")
@@ -188,19 +208,64 @@ model Summon {
   @@map("summons")
 }
 
+/// Inimigo/NPC controlado pelo mestre (age no turno do mestre).
+model Npc {
+  id         String   @id @default(uuid())
+  campaignId String
+  name       String
+  hp         Int
+  hpMax      Int
+  notes      String   @default("")
+  createdAt  DateTime @default(now())
+
+  campaign   Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  conditions Condition[]
+
+  @@map("npcs")
+}
+
+/// Catálogo de condições (prisma/seed/conditions.json).
+model ConditionDef {
+  id             String            @id // slug: "sangrando", "lua-rubra"...
+  name           String
+  description    String
+  polarity       ConditionPolarity @default(NEUTRAL)
+  /// Duração padrão em turnos de quem carrega; null = até alguém remover.
+  turns          Int?
+  /// Vida por turno, aplicada no fim do turno de quem carrega (negativo = dano).
+  hpPerTurn      Int               @default(0)
+  /// Quem carrega perde a vez.
+  skipsTurn      Boolean           @default(false)
+  exclusiveGroup String?
+  sortOrder      Int               @default(0)
+
+  conditions Condition[]
+
+  @@map("condition_defs")
+}
+
 model Condition {
-  id             String   @id @default(uuid())
+  id             String            @id @default(uuid())
   characterId    String?
   summonId       String?
+  npcId          String?
+  defId          String?
   name           String
   description    String?
   source         String? // quem aplicou (texto livre ou nome do personagem)
   exclusiveGroup String? // ex.: "mascara" — só uma condição do grupo por alvo
-  duration       String? // texto livre: "2 turnos", "até o fim da cena"
-  createdAt      DateTime @default(now())
+  duration       String? // legado: texto livre de antes dos turnos
+  polarity       ConditionPolarity @default(NEUTRAL)
+  /// Turnos restantes de quem carrega; desconta no fim do turno dele. null = sem prazo.
+  turnsLeft      Int?
+  hpPerTurn      Int               @default(0)
+  skipsTurn      Boolean           @default(false)
+  createdAt      DateTime          @default(now())
 
-  character Character? @relation(fields: [characterId], references: [id], onDelete: Cascade)
-  summon    Summon?    @relation(fields: [summonId], references: [id], onDelete: Cascade)
+  character Character?    @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  summon    Summon?       @relation(fields: [summonId], references: [id], onDelete: Cascade)
+  npc       Npc?          @relation(fields: [npcId], references: [id], onDelete: Cascade)
+  def       ConditionDef? @relation(fields: [defId], references: [id], onDelete: SetNull)
 
   @@map("conditions")
 }
@@ -226,25 +291,27 @@ model CampaignImage {
   title        String
   createdAt    DateTime @default(now())
 
-  campaign  Campaign  @relation("CampaignImages", fields: [campaignId], references: [id], onDelete: Cascade)
-  shownIn   Campaign? @relation("ShownImage")
+  campaign Campaign  @relation("CampaignImages", fields: [campaignId], references: [id], onDelete: Cascade)
+  shownIn  Campaign? @relation("ShownImage")
 
   @@map("campaign_images")
 }
 
 model LogEntry {
-  id          String    @id @default(uuid())
-  campaignId  String
-  actorUserId String?
-  characterId String?
-  type        LogType
-  message     String
+  id            String    @id @default(uuid())
+  campaignId    String
+  actorUserId   String?
+  characterId   String?
+  type          LogType
+  message       String
   /// Valores antes/depois, usados pelo "desfazer" do mestre.
-  delta       Json?
+  delta         Json?
   /// Resultado de dado associado (d20), quando houver.
-  roll        Int?
-  revertedAt  DateTime?
-  createdAt   DateTime  @default(now())
+  roll          Int?
+  /// Condições que o mestre ainda precisa aplicar em alguém ("Aplicar em…").
+  pendingEffect Json?
+  revertedAt    DateTime?
+  createdAt     DateTime  @default(now())
 
   campaign  Campaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   actor     User?      @relation(fields: [actorUserId], references: [id], onDelete: SetNull)

@@ -72,6 +72,8 @@ export async function as(t: TestApp, username: string) {
         .send(body ?? {}),
     patch: (url: string, body: object) =>
       http().patch(`/api${url}`).auth(token, { type: 'bearer' }).send(body),
+    put: (url: string, body: object) =>
+      http().put(`/api${url}`).auth(token, { type: 'bearer' }).send(body),
     del: (url: string) =>
       http().delete(`/api${url}`).auth(token, { type: 'bearer' }),
     upload: (url: string, field: string, buf: Buffer, name: string) =>

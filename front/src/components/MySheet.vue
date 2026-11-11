@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import ConditionChip from '@/components/ConditionChip.vue'
 import StatBar from '@/components/StatBar.vue'
 import UseAbilityDialog from '@/components/UseAbilityDialog.vue'
 import { api } from '@/services/api'
@@ -76,28 +77,23 @@ async function saveNotes() {
     <section v-if="character.conditions.length" class="block">
       <h3>Condições</h3>
       <div class="chips">
-        <v-chip
-          v-for="c in character.conditions"
-          :key="c.id"
-          color="warning"
-          variant="tonal"
-          :title="[c.description, c.source && `por ${c.source}`].filter(Boolean).join(' · ')"
-        >
-          {{ c.name }}<template v-if="c.duration"> ({{ c.duration }})</template>
-        </v-chip>
+        <ConditionChip v-for="c in character.conditions" :key="c.id" :condition="c" size="default" />
       </div>
     </section>
 
     <!-- habilidades -->
     <section class="block">
       <h3>Habilidades</h3>
+      <p v-if="!campaign.canAct" class="wait">
+        <v-icon icon="mdi-timer-sand" size="small" /> Aguarde a sua vez para usar habilidades.
+      </p>
       <div class="abilities">
         <button
           v-for="a in [basic, ...skills].filter((x): x is Ability => !!x)"
           :key="a.id"
           type="button"
           class="ability"
-          :class="{ disabled: a.manaCost > character.mana }"
+          :class="{ disabled: a.manaCost > character.mana || !campaign.canAct }"
           @click="use(a)"
         >
           <div class="ab-cost">
@@ -127,6 +123,9 @@ async function saveNotes() {
         <div class="row-main">
           <div>{{ s.name }}</div>
           <StatBar label="Vida" :value="s.hp" :max="s.hpMax" color="error" size="sm" />
+          <div v-if="s.conditions.length" class="chips mt-1">
+            <ConditionChip v-for="c in s.conditions" :key="c.id" :condition="c" />
+          </div>
         </div>
       </div>
     </section>
@@ -189,6 +188,12 @@ async function saveNotes() {
 
 .block {
   margin-top: 22px;
+}
+
+.wait {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+  opacity: 0.75;
 }
 
 .block-head {

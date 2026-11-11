@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { ClassesController } from './classes.controller';
+import { ClassesController, ConditionsController } from './classes.controller';
 
 @Module({
-  controllers: [ClassesController],
+  controllers: [ClassesController, ConditionsController],
 })
 export class ClassesModule {}

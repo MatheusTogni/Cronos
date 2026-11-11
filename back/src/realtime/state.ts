@@ -20,6 +20,7 @@ export const logSelect = {
   createdAt: true,
   revertedAt: true,
   delta: true,
+  pendingEffect: true,
   actor: { select: { id: true, displayName: true } },
 } satisfies Prisma.LogEntrySelect;
 
@@ -55,6 +56,10 @@ export async function buildCampaignState(
         orderBy: { createdAt: 'asc' },
         include: characterInclude,
       },
+      npcs: {
+        orderBy: { createdAt: 'asc' },
+        include: { conditions: { orderBy: { createdAt: 'asc' } } },
+      },
     },
   });
 
@@ -67,6 +72,16 @@ export async function buildCampaignState(
     startedAt: c.startedAt,
     endedAt: c.endedAt,
     master: c.master,
+    combat: c.inCombat
+      ? {
+          round: c.round,
+          turnIndex: c.turnIndex,
+          order: c.turnOrder,
+          /** null = turno do mestre. */
+          currentCharacterId:
+            c.turnIndex > 0 ? (c.turnOrder[c.turnIndex - 1] ?? null) : null,
+        }
+      : null,
     players: c.players.map((p) => ({
       userId: p.userId,
       displayName: p.user.displayName,
@@ -75,6 +90,7 @@ export async function buildCampaignState(
       joinedAt: p.joinedAt,
     })),
     characters: c.characters,
+    npcs: c.npcs,
     shownImage: c.shownImage
       ? {
           id: c.shownImage.id,

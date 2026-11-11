@@ -64,7 +64,7 @@
         "name": "Gancho de Corrente",
         "manaCost": 1,
         "description": "Puxa ou desequilibra alguém.",
-        "crits": [{ "min": 18, "max": 20, "text": "derruba ou prende momentaneamente." }]
+        "crits": [{ "min": 18, "max": 20, "text": "derruba ou prende momentaneamente.", "condition": "derrubado", "turns": 1 }]
       },
       {
         "kind": "SKILL",
@@ -78,8 +78,8 @@
         "manaCost": 4,
         "description": "Golpe devastador contra alvo vulnerável.",
         "crits": [
-          { "min": 18, "max": 18, "text": "causa terror" },
-          { "min": 19, "max": 19, "text": "incapacita momentaneamente" },
+          { "min": 18, "max": 18, "text": "causa terror", "condition": "amedrontado", "turns": 2 },
+          { "min": 19, "max": 19, "text": "incapacita momentaneamente", "condition": "incapacitado", "turns": 1 },
           { "min": 20, "max": 20, "text": "execução brutal instantânea em alvo extremamente fraco" }
         ]
       }
@@ -110,7 +110,7 @@
         "name": "Passo Predatório",
         "manaCost": 1,
         "description": "Avança instantaneamente até o alvo e ataca.",
-        "crits": [{ "min": 18, "max": 20, "text": "deixa o alvo desequilibrado." }]
+        "crits": [{ "min": 18, "max": 20, "text": "deixa o alvo desequilibrado.", "condition": "desequilibrado", "turns": 1 }]
       },
       {
         "kind": "SKILL",
@@ -118,9 +118,9 @@
         "manaCost": 2,
         "description": "Disparo rápido para atrapalhar ações.",
         "crits": [
-          { "min": 18, "max": 18, "text": "interrompe movimento" },
+          { "min": 18, "max": 18, "text": "interrompe movimento", "condition": "preso", "turns": 1 },
           { "min": 19, "max": 19, "text": "cancela habilidade" },
-          { "min": 20, "max": 20, "text": "alvo trava de medo/dor" }
+          { "min": 20, "max": 20, "text": "alvo trava de medo/dor", "condition": "incapacitado", "turns": 1 }
         ]
       },
       {
@@ -129,11 +129,7 @@
         "manaCost": 4,
         "description": "O Caçador entra em Frenesi e assume uma forma bestial semelhante a um lobisomem:\n• mais rápido\n• mais agressivo\n• ignora dor\nPorém: toma dano a cada turno enquanto permanecer transformado.",
         "effect": "SELF_CONDITION",
-        "effectData": {
-          "name": "Lua Rubra",
-          "description": "Forma bestial: mais rápido, mais agressivo, ignora dor. Toma dano a cada turno enquanto transformado.",
-          "exclusiveGroup": "lua-rubra"
-        }
+        "effectData": { "condition": "lua-rubra" }
       }
     ]
   },
@@ -164,7 +160,7 @@
         "description": "O alvo sente uma calma sobrenatural.\nEm aliados: reduz medo, melhora foco, alivia ferimentos leves.\nEm inimigos: reduz agressividade, dificulta ações impulsivas.",
         "crits": [{ "min": 18, "max": 20, "text": "remove uma condição negativa ou impede alguém de cair momentaneamente." }],
         "effect": "TARGET_CONDITION",
-        "effectData": { "name": "Máscara da Serenidade", "exclusiveGroup": "mascara" }
+        "effectData": { "condition": "mascara-da-serenidade" }
       },
       {
         "kind": "SKILL",
@@ -172,12 +168,12 @@
         "manaCost": 2,
         "description": "Desperta brutalidade.\nEm aliados: mais agressivos, ignoram hesitação.\nEm inimigos: imprudência, perda de controle.",
         "crits": [
-          { "min": 18, "max": 18, "text": "alvo entra em frenesi" },
-          { "min": 19, "max": 19, "text": "ignora dor" },
+          { "min": 18, "max": 18, "text": "alvo entra em frenesi", "condition": "frenesi" },
+          { "min": 19, "max": 19, "text": "ignora dor", "condition": "ignora-dor" },
           { "min": 20, "max": 20, "text": "perde o autocontrole" }
         ],
         "effect": "TARGET_CONDITION",
-        "effectData": { "name": "Máscara do Carrasco", "exclusiveGroup": "mascara" }
+        "effectData": { "condition": "mascara-do-carrasco" }
       },
       {
         "kind": "SKILL",
@@ -185,7 +181,7 @@
         "manaCost": 4,
         "description": "Apaga parte da presença do alvo.\nEm aliados: difíceis de perceber.\nEm inimigos: confusão, perda de identidade, dificuldade de reconhecer aliados.",
         "effect": "TARGET_CONDITION",
-        "effectData": { "name": "Máscara Vazia", "exclusiveGroup": "mascara" }
+        "effectData": { "condition": "mascara-vazia" }
       }
     ]
   },
@@ -227,7 +223,7 @@
         "manaCost": 4,
         "description": "Marca alguém com uma “dívida”.\nQuanto mais o alvo ignora ou enfrenta o Mercador, pior a situação fica pra ele.",
         "effect": "TARGET_CONDITION",
-        "effectData": { "name": "Dívida", "description": "Quanto mais ignora ou enfrenta o Mercador, pior fica." }
+        "effectData": { "condition": "divida" }
       }
     ]
   },
@@ -269,7 +265,7 @@
         "name": "Voz dos Mortos",
         "manaCost": 3,
         "description": "Sussurros perturbam inimigos:\n• medo\n• distração\n• hesitação",
-        "crits": [{ "min": 18, "max": 20, "text": "causa pânico ou descontrole." }]
+        "crits": [{ "min": 18, "max": 20, "text": "causa pânico ou descontrole.", "condition": "em-panico", "turns": 1 }]
       },
       {
         "kind": "SKILL",
@@ -317,9 +313,9 @@
         "manaCost": 2,
         "description": "Usa distrações rápidas: areia, faca escondida, blefe, movimento falso.\nO alvo:\n• perde foco\n• hesita\n• erra reação",
         "crits": [
-          { "min": 18, "max": 18, "text": "alvo tropeça" },
-          { "min": 19, "max": 19, "text": "alvo reage errado" },
-          { "min": 20, "max": 20, "text": "cria caos momentâneo" }
+          { "min": 18, "max": 18, "text": "alvo tropeça", "condition": "derrubado" },
+          { "min": 19, "max": 19, "text": "alvo reage errado", "condition": "distraido" },
+          { "min": 20, "max": 20, "text": "cria caos momentâneo", "condition": "confuso" }
         ]
       },
       {
@@ -329,15 +325,11 @@
         "description": "A Raposa Vermelha escolhe um alvo e entra em perseguição total:\n• movimentação extremamente rápida\n• pressão constante\n• ataques mais precisos\n• impossível ignorá-la\nDurante a perseguição: consegue furtar melhor, aparece em lugares inesperados, pune qualquer distração.\nPorém: fica mais imprudente e expõe a própria posição.",
         "crits": [
           { "min": 18, "max": 18, "text": "surge imediatamente perto do alvo" },
-          { "min": 19, "max": 19, "text": "alvo entra em desespero" },
+          { "min": 19, "max": 19, "text": "alvo entra em desespero", "condition": "em-panico" },
           { "min": 20, "max": 20, "text": "golpe perfeito em ponto vital" }
         ],
         "effect": "SELF_CONDITION",
-        "effectData": {
-          "name": "Caçada Escarlate",
-          "description": "Em perseguição total: mais rápida e precisa, porém mais imprudente e com a posição exposta.",
-          "exclusiveGroup": "cacada-escarlate"
-        }
+        "effectData": { "condition": "cacada-escarlate" }
       }
     ]
   },
@@ -361,11 +353,7 @@
         "manaCost": 0,
         "description": "Marca um alvo ao enxergar além de sua aparência.",
         "effect": "TARGET_CONDITION",
-        "effectData": {
-          "name": "Marcado pelo Presságio",
-          "description": "Mais vulnerável, sentidos distorcidos, sofre efeitos ampliados.",
-          "exclusiveGroup": "pressagio"
-        }
+        "effectData": { "condition": "marcado-pelo-pressagio" }
       },
       {
         "kind": "SKILL",
@@ -373,7 +361,7 @@
         "manaCost": 1,
         "description": "Remove temporariamente a audição de alguém.\nPode:\n• proteger contra sons\n• causar desorientação\n• impedir distrações",
         "effect": "TARGET_CONDITION",
-        "effectData": { "name": "Surdo", "description": "Audição removida temporariamente." }
+        "effectData": { "condition": "surdo" }
       },
       {
         "kind": "SKILL",
@@ -386,7 +374,7 @@
         "name": "Roubo Sensorial",
         "manaCost": 4,
         "description": "Rouba temporariamente um sentido:\n• visão\n• audição\n• equilíbrio",
-        "crits": [{ "min": 18, "max": 20, "text": "o alvo perde completamente a noção do ambiente." }]
+        "crits": [{ "min": 18, "max": 20, "text": "o alvo perde completamente a noção do ambiente.", "condition": "confuso", "turns": 2 }]
       }
     ]
   },
@@ -416,9 +404,9 @@
         "manaCost": 1,
         "description": "O alvo sente o tempo desacelerar.",
         "crits": [
-          { "min": 18, "max": 18, "text": "hesita" },
-          { "min": 19, "max": 19, "text": "quase para" },
-          { "min": 20, "max": 20, "text": "tempo congela brevemente" }
+          { "min": 18, "max": 18, "text": "hesita", "condition": "hesitante" },
+          { "min": 19, "max": 19, "text": "quase para", "condition": "lento" },
+          { "min": 20, "max": 20, "text": "tempo congela brevemente", "condition": "congelado-no-tempo" }
         ]
       },
       {
@@ -428,8 +416,8 @@
         "description": "Um aliado se move além do normal.",
         "crits": [
           { "min": 18, "max": 18, "text": "movimento perfeito" },
-          { "min": 19, "max": 19, "text": "ação extra rápida" },
-          { "min": 20, "max": 20, "text": "age antes dos outros" }
+          { "min": 19, "max": 19, "text": "ação extra rápida", "condition": "acelerado" },
+          { "min": 20, "max": 20, "text": "age antes dos outros", "condition": "acelerado" }
         ]
       },
       {

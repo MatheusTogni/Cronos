@@ -16,11 +16,13 @@ const links = computed(() =>
         { to: '/mestre/campanhas', label: 'Campanhas', icon: 'mdi-castle', exact: false },
         { to: '/mestre/usuarios', label: 'Usuários', icon: 'mdi-account-group', exact: false },
         { to: '/mestre/classes', label: 'Classes', icon: 'mdi-book-open-variant', exact: false },
+        { to: '/mestre/condicoes', label: 'Condições', icon: 'mdi-alert-decagram', exact: false },
       ]
     : [
         // não-exato também acende o menu dentro de /jogador/campanha/:id
         { to: '/jogador', label: 'Campanhas', icon: 'mdi-castle', exact: false },
         { to: '/jogador/classes', label: 'Classes', icon: 'mdi-book-open-variant', exact: false },
+        { to: '/jogador/condicoes', label: 'Condições', icon: 'mdi-alert-decagram', exact: false },
       ],
 )
 

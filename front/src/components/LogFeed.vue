@@ -6,12 +6,16 @@ const props = withDefaults(
   defineProps<{
     logs: LogEntry[]
     canRevert?: boolean
+    /** Mestre: mostra "Aplicar em…" nos efeitos pendentes. */
+    canApply?: boolean
     /** Altura máxima da lista (rola por dentro). */
     maxHeight?: string
   }>(),
-  { canRevert: false, maxHeight: '60vh' },
+  { canRevert: false, canApply: false, maxHeight: '60vh' },
 )
-const emit = defineEmits<{ revert: [entry: LogEntry] }>()
+const emit = defineEmits<{ revert: [entry: LogEntry]; apply: [entry: LogEntry]; discard: [entry: LogEntry] }>()
+
+const hasPending = (e: LogEntry) => !!e.pendingEffect && !e.revertedAt
 
 const ICON: Record<LogType, { icon: string; color: string }> = {
   DAMAGE: { icon: 'mdi-sword-cross', color: 'error' },
@@ -31,6 +35,10 @@ const ICON: Record<LogType, { icon: string; color: string }> = {
   ITEM_UPDATED: { icon: 'mdi-bag-personal', color: 'grey' },
   CAMPAIGN: { icon: 'mdi-castle', color: 'secondary' },
   NOTE: { icon: 'mdi-feather', color: 'grey' },
+  TURN: { icon: 'mdi-timer-sand', color: 'secondary' },
+  NPC_CREATED: { icon: 'mdi-account-alert', color: 'error' },
+  NPC_UPDATED: { icon: 'mdi-account-alert', color: 'grey' },
+  NPC_REMOVED: { icon: 'mdi-account-alert-outline', color: 'grey' },
 }
 
 const time = (iso: string) =>
@@ -72,6 +80,15 @@ watch(box, (el) => {
         <div class="entry-meta">
           {{ time(entry.createdAt) }}
           <template v-if="entry.revertedAt"> · desfeito</template>
+        </div>
+        <div v-if="hasPending(entry)" class="pending">
+          <template v-if="canApply">
+            <v-btn size="x-small" color="primary" variant="tonal" prepend-icon="mdi-target" @click="emit('apply', entry)">
+              Aplicar em…
+            </v-btn>
+            <v-btn size="x-small" variant="text" @click="emit('discard', entry)">Descartar</v-btn>
+          </template>
+          <span v-else class="waiting"><v-icon icon="mdi-timer-sand" size="x-small" /> aguardando o mestre</span>
         </div>
       </div>
       <v-btn
@@ -139,6 +156,19 @@ watch(box, (el) => {
 .entry-msg {
   line-height: 1.35;
   word-break: break-word;
+}
+
+.pending {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.waiting {
+  font-size: 0.8rem;
+  opacity: 0.65;
 }
 
 .entry-meta {

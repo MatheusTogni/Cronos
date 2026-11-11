@@ -25,6 +25,7 @@ import { LogDto } from '../realtime/state';
 import {
   AdjustDto,
   AdjustSummonDto,
+  ApplyPendingDto,
   CreateConditionDto,
   CreateItemDto,
   CreateSummonDto,
@@ -36,10 +37,19 @@ import {
   UseAbilityDto,
 } from './dto';
 import {
+  applyCondition,
+  conditionAddedMessage,
+  Holder,
+  joinPt,
+  turnsLabel,
+} from './conditions';
+import {
   applyStats,
   clamp,
   Delta,
   DeltaBuilder,
+  PendingCondition,
+  PendingEffect,
   revertDelta,
   writeLog,
 } from './journal';
@@ -50,9 +60,17 @@ interface Crit {
   min: number;
   max: number;
   text: string;
+  /** Condição do catálogo aplicada nessa faixa. */
+  condition?: string;
+  turns?: number;
+  /** Em quem cai: no alvo (padrão) ou em quem usou. */
+  on?: 'target' | 'self';
 }
 
 interface EffectData {
+  /** Condição do catálogo (SELF_CONDITION / TARGET_CONDITION). */
+  condition?: string;
+  turns?: number;
   name?: string;
   description?: string;
   exclusiveGroup?: string;
@@ -65,12 +83,6 @@ interface Ctx {
   isMaster: boolean;
   isOwner: boolean;
 }
-
-/** "a, b e c" */
-const joinPt = (parts: string[]) =>
-  parts.length <= 1
-    ? (parts[0] ?? '')
-    : `${parts.slice(0, -1).join(', ')} e ${parts[parts.length - 1]}`;
 
 @Injectable()
 export class GameService {
@@ -88,6 +100,7 @@ export class GameService {
     user: AuthUser,
   ) {
     const ctx = await this.characterCtx(characterId, user, { owner: true });
+    this.assertTurn(ctx);
 
     return this.run(ctx.campaign.id, async (tx) => {
       const ch = await tx.character.findUniqueOrThrow({
@@ -133,7 +146,9 @@ export class GameService {
       // Alvo e nome da criatura: o jogador só escolhe a habilidade; quem
       // aplica efeitos em alguém (condições, etc.) é o mestre.
       const target = ctx.isMaster ? dto.target : undefined;
-      const targetCharacterId = ctx.isMaster ? dto.targetCharacterId : undefined;
+      const targetCharacterId = ctx.isMaster
+        ? dto.targetCharacterId
+        : undefined;
       const summonName = ctx.isMaster ? dto.summonName : undefined;
 
       let targetLabel = target || null;
@@ -151,6 +166,22 @@ export class GameService {
       // Efeito automático
       const effect = (ability.effectData ?? {}) as EffectData;
       const outcome: string[] = [];
+      const pending: PendingCondition[] = [];
+      const give = async (holder: Character, cond: PendingCondition) => {
+        const { condition, replaced } = await applyCondition(
+          tx,
+          { characterId: holder.id },
+          { ...cond, source: ch.name },
+          delta,
+        );
+        outcome.push(
+          (holder.id === ch.id
+            ? `${ch.name} está sob ${condition.name}`
+            : `${condition.name} aplicada em ${holder.name}`) +
+            turnsLabel(condition.turnsLeft) +
+            (replaced.length ? ` (substituiu ${joinPt(replaced)})` : ''),
+        );
+      };
       switch (ability.effect) {
         case AbilityEffect.SUMMON: {
           const max = ch.class.maxSummons;
@@ -198,44 +229,43 @@ export class GameService {
           break;
         }
 
-        case AbilityEffect.SELF_CONDITION: {
-          const replaced = await this.addCondition(
-            tx,
-            ch.id,
-            {
-              name: effect.name ?? ability.name,
-              description: effect.description,
-              exclusiveGroup: effect.exclusiveGroup,
-              source: ch.name,
-            },
-            delta,
-          );
-          outcome.push(
-            `${ch.name} está sob ${effect.name ?? ability.name}` +
-              (replaced.length ? ` (substituiu ${joinPt(replaced)})` : ''),
-          );
-          break;
-        }
-
+        case AbilityEffect.SELF_CONDITION:
         case AbilityEffect.TARGET_CONDITION: {
-          if (!targetChar) break; // alvo fora da party: fica só no log
-          const replaced = await this.addCondition(
-            tx,
-            targetChar.id,
-            {
-              name: effect.name ?? ability.name,
-              description: effect.description,
-              exclusiveGroup: effect.exclusiveGroup,
-              source: ch.name,
-            },
-            delta,
-          );
-          outcome.push(
-            `${effect.name ?? ability.name} aplicada em ${targetChar.name}` +
-              (replaced.length ? ` (substituiu ${joinPt(replaced)})` : ''),
-          );
+          const holder =
+            ability.effect === AbilityEffect.SELF_CONDITION ? ch : targetChar;
+          const cond: PendingCondition = {
+            defId: effect.condition,
+            name: effect.condition ? undefined : (effect.name ?? ability.name),
+            description: effect.description,
+            exclusiveGroup: effect.exclusiveGroup,
+            turns: effect.turns,
+          };
+          if (holder) await give(holder, cond);
+          else pending.push(cond); // o mestre escolhe em quem cai
           break;
         }
+      }
+
+      // Crítico que aplica condição
+      if (crit?.condition) {
+        const cond: PendingCondition = {
+          defId: crit.condition,
+          turns: crit.turns,
+        };
+        const holder = crit.on === 'self' ? ch : targetChar;
+        if (holder) await give(holder, cond);
+        else pending.push(cond);
+      }
+
+      if (pending.length) {
+        const names: string[] = [];
+        for (const p of pending) {
+          const def = p.defId
+            ? await tx.conditionDef.findUnique({ where: { id: p.defId } })
+            : null;
+          names.push(p.name ?? def?.name ?? p.defId ?? '?');
+        }
+        outcome.push(`aguardando o mestre aplicar ${joinPt(names)}`);
       }
 
       let message = `${ch.name} usou ${ability.name}`;
@@ -253,6 +283,7 @@ export class GameService {
         message,
         roll,
         delta,
+        pendingEffect: { source: ch.name, conditions: pending },
       });
     });
   }
@@ -489,15 +520,10 @@ export class GameService {
     const ctx = await this.characterCtx(characterId, user, { owner: false });
     return this.run(ctx.campaign.id, async (tx) => {
       const delta = new DeltaBuilder();
-      await this.addCondition(
+      const { condition, replaced } = await applyCondition(
         tx,
-        characterId,
-        {
-          name: dto.name,
-          description: dto.description,
-          duration: dto.duration,
-          source: ctx.isMaster ? 'Mestre' : ctx.character.name,
-        },
+        { characterId },
+        { ...dto, source: ctx.isMaster ? 'Mestre' : ctx.character.name },
         delta,
       );
       return writeLog(tx, {
@@ -505,9 +531,39 @@ export class GameService {
         actorUserId: user.id,
         characterId,
         type: LogType.CONDITION_ADDED,
-        message:
-          `${ctx.character.name} está com ${dto.name}` +
-          (dto.duration ? ` (${dto.duration})` : ''),
+        message: conditionAddedMessage(ctx.character.name, condition, replaced),
+        delta,
+      });
+    });
+  }
+
+  /** Condição numa invocação: desconta no fim do turno do dono. */
+  async createSummonCondition(
+    summonId: string,
+    dto: CreateConditionDto,
+    user: AuthUser,
+  ) {
+    const { ctx, summon } = await this.summonCtx(summonId, user, {
+      owner: false,
+    });
+    return this.run(ctx.campaign.id, async (tx) => {
+      const delta = new DeltaBuilder();
+      const { condition, replaced } = await applyCondition(
+        tx,
+        { summonId },
+        { ...dto, source: 'Mestre' },
+        delta,
+      );
+      return writeLog(tx, {
+        campaignId: ctx.campaign.id,
+        actorUserId: user.id,
+        characterId: ctx.character.id,
+        type: LogType.CONDITION_ADDED,
+        message: conditionAddedMessage(
+          `${summon.name} (de ${ctx.character.name})`,
+          condition,
+          replaced,
+        ),
         delta,
       });
     });
@@ -516,20 +572,39 @@ export class GameService {
   async removeCondition(conditionId: string, user: AuthUser) {
     const condition = await this.prisma.condition.findUnique({
       where: { id: conditionId },
-      include: { summon: true },
+      include: { summon: true, npc: true },
     });
     if (!condition) throw new NotFoundException('Condição não encontrada');
-    const characterId = condition.characterId ?? condition.summon?.characterId;
-    if (!characterId) throw new NotFoundException('Condição não encontrada');
-    const ctx = await this.characterCtx(characterId, user, { owner: false });
 
-    return this.run(ctx.campaign.id, async (tx) => {
+    let campaignId: string;
+    let characterId: string | null = null;
+    let holder: string;
+    if (condition.npc) {
+      // inimigo: só o mestre, com a aventura em andamento
+      const campaign = await this.activeCampaign(
+        condition.npc.campaignId,
+        user,
+      );
+      if (!isCampaignMaster(campaign, user)) {
+        throw new ForbiddenException('Só o mestre pode fazer isso');
+      }
+      campaignId = campaign.id;
+      holder = condition.npc.name;
+    } else {
+      const ownerId = condition.characterId ?? condition.summon?.characterId;
+      if (!ownerId) throw new NotFoundException('Condição não encontrada');
+      const ctx = await this.characterCtx(ownerId, user, { owner: false });
+      campaignId = ctx.campaign.id;
+      characterId = ownerId;
+      holder = condition.summon?.name ?? ctx.character.name;
+    }
+
+    return this.run(campaignId, async (tx) => {
       const delta = new DeltaBuilder();
       delta.deletedCondition(condition);
       await tx.condition.delete({ where: { id: conditionId } });
-      const holder = condition.summon?.name ?? ctx.character.name;
       return writeLog(tx, {
-        campaignId: ctx.campaign.id,
+        campaignId,
         actorUserId: user.id,
         characterId,
         type: LogType.CONDITION_REMOVED,
@@ -537,6 +612,112 @@ export class GameService {
         delta,
       });
     });
+  }
+
+  // ───────────────────────── efeito pendente ─────────────────────────
+
+  /** O mestre aplica o efeito pendente de uma habilidade em alguém ("Aplicar em…"). */
+  async applyPending(logId: string, dto: ApplyPendingDto, user: AuthUser) {
+    const { entry, effect } = await this.pendingCtx(logId, user);
+    const campaignId = entry.campaignId;
+
+    // resolve o alvo dentro da campanha
+    let holder: Holder;
+    let name: string;
+    let characterId: string | null = null;
+    if (dto.kind === 'character') {
+      const c = await this.prisma.character.findFirst({
+        where: { id: dto.id, campaignId },
+      });
+      if (!c) throw new BadRequestException('Alvo não está nesta campanha');
+      holder = { characterId: c.id };
+      name = c.name;
+      characterId = c.id;
+    } else if (dto.kind === 'summon') {
+      const sm = await this.prisma.summon.findFirst({
+        where: { id: dto.id, character: { campaignId } },
+        include: { character: true },
+      });
+      if (!sm) throw new BadRequestException('Alvo não está nesta campanha');
+      holder = { summonId: sm.id };
+      name = `${sm.name} (de ${sm.character.name})`;
+      characterId = sm.characterId;
+    } else {
+      const n = await this.prisma.npc.findFirst({
+        where: { id: dto.id, campaignId },
+      });
+      if (!n) throw new BadRequestException('Alvo não está nesta campanha');
+      holder = { npcId: n.id };
+      name = n.name;
+    }
+
+    const result = await this.run(campaignId, async (tx) => {
+      // limpa o pendente primeiro: se outro clique já aplicou, para aqui
+      const cleared = await tx.logEntry.updateMany({
+        where: {
+          id: logId,
+          revertedAt: null,
+          pendingEffect: { not: Prisma.DbNull },
+        },
+        data: { pendingEffect: Prisma.DbNull },
+      });
+      if (!cleared.count) {
+        throw new BadRequestException('Esse efeito não está mais pendente');
+      }
+      const delta = new DeltaBuilder();
+      delta.clearedPending(logId, effect);
+      const parts: string[] = [];
+      for (const cond of effect.conditions) {
+        const { condition, replaced } = await applyCondition(
+          tx,
+          holder,
+          { ...cond, source: effect.source },
+          delta,
+        );
+        parts.push(
+          condition.name +
+            turnsLabel(condition.turnsLeft) +
+            (replaced.length ? ` (substituiu ${joinPt(replaced)})` : ''),
+        );
+      }
+      return writeLog(tx, {
+        campaignId,
+        actorUserId: user.id,
+        characterId,
+        type: LogType.CONDITION_ADDED,
+        message: `${joinPt(parts)}, de ${effect.source}, aplicada em ${name}`,
+        delta,
+      });
+    });
+    await this.realtime.logUpdated(campaignId, logId);
+    return result;
+  }
+
+  /** O mestre descarta o efeito pendente (não cai em ninguém). */
+  async discardPending(logId: string, user: AuthUser) {
+    const { entry } = await this.pendingCtx(logId, user);
+    await this.prisma.logEntry.update({
+      where: { id: logId },
+      data: { pendingEffect: Prisma.DbNull },
+    });
+    await this.realtime.logUpdated(entry.campaignId, logId);
+    return { log: null };
+  }
+
+  private async pendingCtx(logId: string, user: AuthUser) {
+    const entry = await this.prisma.logEntry.findUnique({
+      where: { id: logId },
+    });
+    if (!entry) throw new NotFoundException('Registro não encontrado');
+    const campaign = await this.activeCampaign(entry.campaignId, user);
+    if (!isCampaignMaster(campaign, user)) {
+      throw new ForbiddenException('Só o mestre aplica efeitos');
+    }
+    const effect = entry.pendingEffect as PendingEffect | null;
+    if (!effect || entry.revertedAt) {
+      throw new BadRequestException('Esse efeito não está mais pendente');
+    }
+    return { entry, effect };
   }
 
   // ───────────────────────── inventário ─────────────────────────
@@ -674,6 +855,17 @@ export class GameService {
     if (entry.revertedAt) {
       throw new BadRequestException('Esse registro já foi desfeito');
     }
+    const turn = (entry.delta as Delta).turn;
+    if (
+      turn &&
+      (!campaign.inCombat ||
+        campaign.round !== turn.to.round ||
+        campaign.turnIndex !== turn.to.turnIndex)
+    ) {
+      throw new BadRequestException(
+        'Só dá para desfazer a última passagem de turno do combate atual',
+      );
+    }
 
     const log = await this.run(entry.campaignId, async (tx) => {
       // Marca primeiro, condicionado a ainda não ter sido desfeito (evita desfazer 2×).
@@ -694,6 +886,11 @@ export class GameService {
       });
     });
     this.realtime.emitLogReverted(entry.campaignId, logId);
+    // desfazer um "Aplicar em…" devolve o botão no registro da habilidade
+    const cleared = (entry.delta as Delta).clearedPending;
+    if (cleared) {
+      await this.realtime.logUpdated(entry.campaignId, cleared.logId);
+    }
     return log;
   }
 
@@ -713,47 +910,14 @@ export class GameService {
     return { log };
   }
 
-  /** Aplica uma condição; se tiver grupo exclusivo, remove as do mesmo grupo. Devolve os nomes substituídos. */
-  private async addCondition(
-    tx: Tx,
-    characterId: string,
-    data: {
-      name: string;
-      description?: string;
-      duration?: string;
-      exclusiveGroup?: string;
-      source?: string;
-    },
-    delta: DeltaBuilder,
-  ) {
-    const replaced: string[] = [];
-    if (data.exclusiveGroup) {
-      const same = await tx.condition.findMany({
-        where: { characterId, exclusiveGroup: data.exclusiveGroup },
-      });
-      for (const c of same) {
-        delta.deletedCondition(c);
-        replaced.push(c.name);
-      }
-      if (same.length) {
-        await tx.condition.deleteMany({
-          where: { id: { in: same.map((c) => c.id) } },
-        });
-      }
+  /** Em combate, o jogador só age no turno do próprio personagem. */
+  private assertTurn(ctx: Ctx) {
+    const c = ctx.campaign;
+    if (ctx.isMaster || !c.inCombat) return;
+    const current = c.turnIndex > 0 ? c.turnOrder[c.turnIndex - 1] : null;
+    if (current !== ctx.character.id) {
+      throw new ForbiddenException('Não é o seu turno');
     }
-    const created = await tx.condition.create({
-      data: {
-        characterId,
-        name: data.name,
-        description: data.description || null,
-        duration: data.duration || null,
-        exclusiveGroup: data.exclusiveGroup || null,
-        source: data.source || null,
-      },
-    });
-    delta.created('conditions', created.id);
-    // reaplicar a mesma condição não conta como "substituiu"
-    return replaced.filter((n) => n !== data.name);
   }
 
   private async activeCampaign(campaignId: string, user: AuthUser) {

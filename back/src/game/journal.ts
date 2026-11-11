@@ -11,6 +11,7 @@ import {
   Condition,
   InventoryItem,
   LogType,
+  Npc,
   Prisma,
   Summon,
 } from '@prisma/client';
@@ -28,13 +29,48 @@ export interface StatDiff {
 type ConditionSnap = Omit<Condition, 'createdAt'> & { createdAt: string };
 type SummonSnap = Omit<Summon, 'createdAt'> & { createdAt: string };
 type ItemSnap = Omit<InventoryItem, 'createdAt'> & { createdAt: string };
+type NpcSnap = Omit<Npc, 'createdAt'> & { createdAt: string };
+
+/** Condição a aplicar quando o mestre escolher o alvo. */
+export interface PendingCondition {
+  defId?: string;
+  name?: string;
+  description?: string;
+  exclusiveGroup?: string;
+  turns?: number | null;
+}
+
+/** Efeito de habilidade aguardando o mestre ("Aplicar em…"). */
+export interface PendingEffect {
+  /** Quem usou a habilidade. */
+  source: string;
+  conditions: PendingCondition[];
+}
+
+export interface TurnPos {
+  round: number;
+  turnIndex: number;
+}
 
 export interface Delta {
   stats?: ({ characterId: string } & StatDiff)[];
+  /** Passagem de turno: de onde para onde foi. */
+  turn?: { campaignId: string; from: TurnPos; to: TurnPos };
+  /** Turnos descontados das condições (desfazer devolve). */
+  conditionTurns?: { conditionId: string; turns: number }[];
   summonHp?: { summonId: string; hp: number }[];
+  npcHp?: { npcId: string; hp: number }[];
   itemQty?: { itemId: string; qty: number }[];
-  created?: { summons?: string[]; conditions?: string[]; items?: string[] };
+  /** Efeito pendente que esta ação consumiu (desfazer devolve). */
+  clearedPending?: { logId: string; effect: PendingEffect };
+  created?: {
+    summons?: string[];
+    conditions?: string[];
+    items?: string[];
+    npcs?: string[];
+  };
   deleted?: {
+    npcs?: NpcSnap[];
     summons?: SummonSnap[];
     conditions?: ConditionSnap[];
     items?: ItemSnap[];
@@ -65,17 +101,39 @@ export class DeltaBuilder {
     if (hp) (this.delta.summonHp ??= []).push({ summonId, hp });
   }
 
+  npcHp(npcId: string, hp: number) {
+    if (hp) (this.delta.npcHp ??= []).push({ npcId, hp });
+  }
+
+  clearedPending(logId: string, effect: PendingEffect) {
+    this.delta.clearedPending = { logId, effect };
+  }
+
+  turn(campaignId: string, from: TurnPos, to: TurnPos) {
+    this.delta.turn = { campaignId, from, to };
+  }
+
+  conditionTurns(conditionId: string, turns: number) {
+    if (turns) (this.delta.conditionTurns ??= []).push({ conditionId, turns });
+  }
+
   itemQty(itemId: string, qty: number) {
     if (qty) (this.delta.itemQty ??= []).push({ itemId, qty });
   }
 
-  created(kind: 'summons' | 'conditions' | 'items', id: string) {
+  created(kind: 'summons' | 'conditions' | 'items' | 'npcs', id: string) {
     ((this.delta.created ??= {})[kind] ??= []).push(id);
   }
 
   deletedSummon(s: Summon & { conditions?: Condition[] }) {
     const { conditions, ...summon } = s;
     ((this.delta.deleted ??= {}).summons ??= []).push(snap(summon));
+    for (const c of conditions ?? []) this.deletedCondition(c);
+  }
+
+  deletedNpc(n: Npc & { conditions?: Condition[] }) {
+    const { conditions, ...npc } = n;
+    ((this.delta.deleted ??= {}).npcs ??= []).push(snap(npc));
     for (const c of conditions ?? []) this.deletedCondition(c);
   }
 
@@ -147,6 +205,41 @@ export async function revertDelta(db: Db, delta: Delta) {
     });
   }
 
+  if (delta.turn) {
+    await db.campaign.update({
+      where: { id: delta.turn.campaignId },
+      data: delta.turn.from,
+    });
+  }
+
+  for (const n of delta.npcHp ?? []) {
+    const npc = await db.npc.findUnique({ where: { id: n.npcId } });
+    if (!npc) continue;
+    await db.npc.update({
+      where: { id: npc.id },
+      data: { hp: clamp(npc.hp - n.hp, 0, npc.hpMax) },
+    });
+  }
+
+  if (delta.clearedPending) {
+    await db.logEntry.updateMany({
+      where: { id: delta.clearedPending.logId },
+      data: {
+        pendingEffect: delta.clearedPending
+          .effect as unknown as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  for (const t of delta.conditionTurns ?? []) {
+    const c = await db.condition.findUnique({ where: { id: t.conditionId } });
+    if (!c || c.turnsLeft === null) continue;
+    await db.condition.update({
+      where: { id: c.id },
+      data: { turnsLeft: c.turnsLeft - t.turns },
+    });
+  }
+
   for (const i of delta.itemQty ?? []) {
     const item = await db.inventoryItem.findUnique({ where: { id: i.itemId } });
     if (!item) continue;
@@ -168,6 +261,9 @@ export async function revertDelta(db: Db, delta: Delta) {
   if (created.items?.length) {
     await db.inventoryItem.deleteMany({ where: { id: { in: created.items } } });
   }
+  if (created.npcs?.length) {
+    await db.npc.deleteMany({ where: { id: { in: created.npcs } } });
+  }
 
   // Recria o que foi apagado (invocações antes das condições que apontam para elas).
   const deleted = delta.deleted ?? {};
@@ -180,6 +276,22 @@ export async function revertDelta(db: Db, delta: Delta) {
     return new Set(rows.map((r) => r.id));
   };
 
+  if (deleted.npcs?.length) {
+    const campaigns = new Set(
+      (
+        await db.campaign.findMany({
+          where: { id: { in: deleted.npcs.map((n) => n.campaignId) } },
+          select: { id: true },
+        })
+      ).map((c) => c.id),
+    );
+    await db.npc.createMany({
+      data: deleted.npcs
+        .filter((n) => campaigns.has(n.campaignId))
+        .map((n) => ({ ...n, createdAt: new Date(n.createdAt) })),
+      skipDuplicates: true,
+    });
+  }
   if (deleted.summons?.length) {
     const alive = await existingCharacters(
       deleted.summons.map((s) => s.characterId),
@@ -209,10 +321,28 @@ export async function revertDelta(db: Db, delta: Delta) {
         })
       ).map((s) => s.id),
     );
+    const npcIds = new Set(
+      (
+        await db.npc.findMany({
+          where: {
+            id: {
+              in: deleted.conditions
+                .map((c) => c.npcId)
+                .filter((x): x is string => !!x),
+            },
+          },
+          select: { id: true },
+        })
+      ).map((n) => n.id),
+    );
     await db.condition.createMany({
       data: deleted.conditions
         .filter((c) =>
-          c.characterId ? alive.has(c.characterId) : summonIds.has(c.summonId!),
+          c.characterId
+            ? alive.has(c.characterId)
+            : c.summonId
+              ? summonIds.has(c.summonId)
+              : !!c.npcId && npcIds.has(c.npcId),
         )
         .map((c) => ({ ...c, createdAt: new Date(c.createdAt) })),
       skipDuplicates: true,
@@ -241,6 +371,7 @@ export async function writeLog(
     message: string;
     roll?: number | null;
     delta?: DeltaBuilder | null;
+    pendingEffect?: PendingEffect | null;
   },
 ) {
   const entry = await db.logEntry.create({
@@ -251,6 +382,9 @@ export async function writeLog(
       type: data.type,
       message: data.message,
       roll: data.roll ?? null,
+      pendingEffect: data.pendingEffect?.conditions.length
+        ? (data.pendingEffect as unknown as Prisma.InputJsonValue)
+        : Prisma.DbNull,
       delta:
         data.delta && !data.delta.isEmpty
           ? (data.delta.delta as Prisma.InputJsonValue)

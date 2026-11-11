@@ -35,6 +35,20 @@ export const useCampaignStore = defineStore('campaign', () => {
   const mySeat = computed(
     () => state.value?.players.find((p) => p.userId === auth.user?.id) ?? null,
   )
+  // ── combate ──
+  const combat = computed(() => state.value?.combat ?? null)
+  /** Personagem com a vez (null = mestre ou fora de combate). */
+  const currentTurnCharacter = computed(() =>
+    combat.value?.currentCharacterId ? characterById(combat.value.currentCharacterId) : null,
+  )
+  /** Fora de combate todos agem; em combate, só quem está com a vez (o mestre sempre). */
+  const canAct = computed(
+    () => !combat.value || isMaster.value || (!!myCharacter.value && currentTurnCharacter.value?.id === myCharacter.value.id),
+  )
+  const isMyTurn = computed(
+    () => !!combat.value && !!myCharacter.value && currentTurnCharacter.value?.id === myCharacter.value.id,
+  )
+
   const characterById = (id: string | null | undefined) =>
     state.value?.characters.find((c) => c.id === id) ?? null
   const playerName = (userId: string) =>
@@ -68,6 +82,10 @@ export const useCampaignStore = defineStore('campaign', () => {
         if (s.id === campaignId.value) apply(s)
       }),
       realtime.on<LogEntry>('log:new', (entry) => pushLog(entry)),
+      realtime.on<LogEntry>('log:updated', (entry) => {
+        const i = logs.value.findIndex((l) => l.id === entry.id)
+        if (i >= 0) logs.value[i] = entry
+      }),
       realtime.on<{ id: string }>('log:reverted', ({ id }) => {
         const entry = logs.value.find((l) => l.id === id)
         if (entry) {
@@ -150,6 +168,10 @@ export const useCampaignStore = defineStore('campaign', () => {
     mySeat,
     characterById,
     playerName,
+    combat,
+    currentTurnCharacter,
+    canAct,
+    isMyTurn,
     open,
     close,
     refresh,

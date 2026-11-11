@@ -48,6 +48,11 @@ const router = createRouter({
           component: () => import('@/pages/ClassesPage.vue'),
           meta: { title: 'Classes' },
         },
+        {
+          path: 'condicoes',
+          component: () => import('@/pages/ConditionsPage.vue'),
+          meta: { title: 'Condições' },
+        },
       ],
     },
     {
@@ -69,6 +74,11 @@ const router = createRouter({
           path: 'classes',
           component: () => import('@/pages/ClassesPage.vue'),
           meta: { title: 'Classes' },
+        },
+        {
+          path: 'condicoes',
+          component: () => import('@/pages/ConditionsPage.vue'),
+          meta: { title: 'Condições' },
         },
       ],
     },

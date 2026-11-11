@@ -1,5 +1,10 @@
 import { Transform } from 'class-transformer';
+import { ConditionPolarity } from '@prisma/client';
 import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsEnum,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -121,11 +126,18 @@ export class AdjustSummonDto {
 }
 
 export class CreateConditionDto {
+  /** Condição do catálogo (GET /conditions). Sem ela, o nome é obrigatório. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  defId?: string;
+
+  @ValidateIf((o: CreateConditionDto) => !o.defId)
   @Transform(trim)
   @IsString()
   @IsNotEmpty({ message: 'Dê um nome para a condição' })
   @MaxLength(60)
-  name!: string;
+  name?: string;
 
   @IsOptional()
   @Transform(trim)
@@ -134,10 +146,26 @@ export class CreateConditionDto {
   description?: string;
 
   @IsOptional()
-  @Transform(trim)
-  @IsString()
-  @MaxLength(60)
-  duration?: string;
+  @IsEnum(ConditionPolarity)
+  polarity?: ConditionPolarity;
+
+  /** Turnos de quem carrega; sem valor = padrão do catálogo (ou sem prazo). */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  turns?: number;
+
+  /** Vida aplicada no fim de cada turno (negativo = dano). */
+  @IsOptional()
+  @IsInt()
+  @Min(-999)
+  @Max(999)
+  hpPerTurn?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  skipsTurn?: boolean;
 }
 
 export class CreateItemDto {
@@ -199,4 +227,54 @@ export class NoteDto {
   @IsNotEmpty({ message: 'Escreva alguma coisa' })
   @MaxLength(500)
   message!: string;
+}
+
+export class NextTurnDto {
+  /** Turno que a tela mostrava; se já mudou, recusa (evita passar 2×). */
+  @IsOptional() @IsInt() @Min(0) round?: number;
+  @IsOptional() @IsInt() @Min(0) turnIndex?: number;
+}
+
+export class TurnOrderDto {
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsUUID('4', { each: true })
+  characterIds!: string[];
+}
+
+export const TARGET_KINDS = ['character', 'summon', 'npc'] as const;
+
+/** Em quem o mestre aplica o efeito pendente. */
+export class ApplyPendingDto {
+  @IsIn(TARGET_KINDS)
+  kind!: (typeof TARGET_KINDS)[number];
+
+  @IsUUID()
+  id!: string;
+}
+
+export class CreateNpcDto {
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty({ message: 'Dê um nome para o inimigo' })
+  @MaxLength(60)
+  name!: string;
+
+  @IsInt() @Min(1) @Max(9999) hpMax!: number;
+}
+
+export class UpdateNpcDto {
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(60)
+  name?: string;
+
+  @IsOptional() @IsInt() @Min(1) @Max(9999) hpMax?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  notes?: string;
 }

@@ -23,6 +23,11 @@ export interface Crit {
   min: number
   max: number
   text: string
+  /** Condição do catálogo aplicada nessa faixa. */
+  condition?: string
+  turns?: number
+  /** Em quem cai: no alvo (padrão) ou em quem usou. */
+  on?: 'target' | 'self'
 }
 
 export type AbilityKind = 'BASIC' | 'SKILL'
@@ -101,20 +106,66 @@ export interface OpenCampaign {
   ready: boolean
 }
 
+export type ConditionPolarity = 'BUFF' | 'DEBUFF' | 'NEUTRAL'
+
+export const POLARITY_LABEL: Record<ConditionPolarity, string> = {
+  BUFF: 'Positiva',
+  DEBUFF: 'Negativa',
+  NEUTRAL: 'Neutra',
+}
+
+export const POLARITY_COLOR: Record<ConditionPolarity, string> = {
+  BUFF: 'success',
+  DEBUFF: 'error',
+  NEUTRAL: 'warning',
+}
+
+/** Condição do catálogo (GET /conditions). */
+export interface ConditionDef {
+  id: string
+  name: string
+  description: string
+  polarity: ConditionPolarity
+  turns: number | null
+  hpPerTurn: number
+  skipsTurn: boolean
+  exclusiveGroup: string | null
+  sortOrder: number
+}
+
 export interface Condition {
   id: string
   characterId: string | null
   summonId: string | null
+  npcId: string | null
+  defId: string | null
   name: string
   description: string | null
   source: string | null
   exclusiveGroup: string | null
+  /** Legado: texto livre de antes dos turnos. */
   duration: string | null
+  polarity: ConditionPolarity
+  /** Turnos restantes de quem carrega; null = sem prazo. */
+  turnsLeft: number | null
+  hpPerTurn: number
+  skipsTurn: boolean
 }
 
 export interface Summon {
   id: string
   characterId: string
+  name: string
+  hp: number
+  hpMax: number
+  notes: string
+  conditions: Condition[]
+}
+
+/** Inimigo/NPC controlado pelo mestre (age no turno do mestre). */
+export interface Npc {
+  id: string
+  campaignId: string
   name: string
   hp: number
   hpMax: number
@@ -154,6 +205,16 @@ export interface LobbyPlayer {
   ready: boolean
 }
 
+/** Combate em turnos; null quando não há combate. */
+export interface CombatState {
+  round: number
+  /** 0 = mestre; i = order[i - 1]. */
+  turnIndex: number
+  order: string[]
+  /** null = turno do mestre. */
+  currentCharacterId: string | null
+}
+
 export interface CampaignState {
   id: string
   name: string
@@ -163,7 +224,9 @@ export interface CampaignState {
   master: { id: string; displayName: string }
   players: LobbyPlayer[]
   characters: Character[]
+  npcs: Npc[]
   shownImage: { id: string; title: string; url: string } | null
+  combat: CombatState | null
 }
 
 export type LogType =
@@ -184,6 +247,24 @@ export type LogType =
   | 'ITEM_UPDATED'
   | 'CAMPAIGN'
   | 'NOTE'
+  | 'TURN'
+  | 'NPC_CREATED'
+  | 'NPC_UPDATED'
+  | 'NPC_REMOVED'
+
+/** Efeito de habilidade aguardando o mestre escolher o alvo. */
+export interface PendingEffect {
+  source: string
+  conditions: { defId?: string; name?: string; turns?: number | null }[]
+}
+
+/** Quem pode receber condição. */
+export type TargetKind = 'character' | 'summon' | 'npc'
+export interface ConditionTarget {
+  kind: TargetKind
+  id: string
+  name: string
+}
 
 export interface LogEntry {
   id: string
@@ -194,6 +275,7 @@ export interface LogEntry {
   createdAt: string
   revertedAt: string | null
   revertible: boolean
+  pendingEffect: PendingEffect | null
   actor: { id: string; displayName: string } | null
 }
 

@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { api } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
+import { useConditionsStore } from '@/stores/conditions'
 import type { Ability, ActionResult, Character, Crit } from '@/types/api'
 
 const props = defineProps<{ character: Character; ability: Ability | null }>()
@@ -9,6 +10,7 @@ const open = defineModel<boolean>({ required: true })
 const emit = defineEmits<{ used: [log: ActionResult['log']] }>()
 
 const campaign = useCampaignStore()
+const catalog = useConditionsStore()
 
 type RollMode = 'auto' | 'manual' | 'none'
 const rollMode = ref<RollMode>('auto')
@@ -26,11 +28,26 @@ const summonOptions = computed(() =>
   props.character.summons.map((s) => ({ title: `${s.name} (${s.hp}/${s.hpMax})`, value: s.id })),
 )
 
+/** "Incapacitado, 1 turno" — condição que a faixa aplica. */
+const critCondition = (c: Crit) => {
+  if (!c.condition) return ''
+  const name = catalog.byId(c.condition)?.name ?? c.condition
+  const turns = c.turns ? `, ${c.turns} ${c.turns === 1 ? 'turno' : 'turnos'}` : ''
+  return `${name}${turns}${c.on === 'self' ? ' (em você)' : ''}`
+}
+// algum efeito vai cair em outra pessoa: o mestre escolhe quem
+const targetsSomeone = computed(
+  () => effect.value === 'TARGET_CONDITION' || !!props.ability?.crits?.some((c) => c.condition && c.on !== 'self'),
+)
+
 const critLabel = (c: Crit) =>
   c.min === c.max ? `${c.min}` : c.max === 20 ? `${c.min}+` : `${c.min}–${c.max}`
 
 watch(open, (isOpen) => {
   if (!isOpen) return
+  catalog.load().catch(() => {
+    /* sem catálogo, mostra o id da condição */
+  })
   rollMode.value = hasCrits.value ? 'auto' : 'none'
   manualRoll.value = null
   summonId.value = props.character.summons.length === 1 ? (props.character.summons[0]?.id ?? null) : null
@@ -91,9 +108,15 @@ async function submit() {
         <ul v-if="hasCrits" class="crits">
           <li v-for="c in ability.crits ?? []" :key="c.min">
             <strong>{{ critLabel(c) }}:</strong> {{ c.text }}
+            <v-chip v-if="c.condition" size="x-small" color="warning" variant="tonal" class="ml-1">
+              {{ critCondition(c) }}
+            </v-chip>
           </li>
         </ul>
 
+        <v-alert v-if="!campaign.canAct" type="warning" variant="tonal" density="compact" class="mb-3">
+          Não é a sua vez: aguarde o seu turno no combate.
+        </v-alert>
         <v-alert v-if="!enoughMana" type="warning" variant="tonal" density="compact" class="mb-3">
           Mana insuficiente: precisa de {{ ability.manaCost }}, você tem {{ character.mana }}.
         </v-alert>
@@ -119,7 +142,7 @@ async function submit() {
         <div v-if="effect === 'SUMMON' && character.summons.length" class="hint mt-2">
           {{ character.summons.map((s) => s.name).join(', ') }} pode desaparecer ao invocar outra.
         </div>
-        <div v-if="effect === 'TARGET_CONDITION'" class="hint mt-2">
+        <div v-if="targetsSomeone" class="hint mt-2">
           O mestre decide em quem o efeito cai.
         </div>
 
@@ -134,7 +157,7 @@ async function submit() {
       <v-card-actions class="px-6 pb-5">
         <v-spacer />
         <v-btn variant="text" @click="open = false">Cancelar</v-btn>
-        <v-btn color="primary" variant="flat" :loading="busy" :disabled="!enoughMana" @click="submit">
+        <v-btn color="primary" variant="flat" :loading="busy" :disabled="!enoughMana || !campaign.canAct" @click="submit">
           Usar
         </v-btn>
       </v-card-actions>

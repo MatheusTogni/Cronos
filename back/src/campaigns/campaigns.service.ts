@@ -204,7 +204,12 @@ export class CampaignsService {
     const log = await this.prisma.$transaction(async (tx) => {
       await tx.campaign.update({
         where: { id },
-        data: { status: ENDED, endedAt: new Date(), shownImageId: null },
+        data: {
+          status: ENDED,
+          endedAt: new Date(),
+          shownImageId: null,
+          inCombat: false,
+        },
       });
       return writeLog(tx, {
         campaignId: id,
