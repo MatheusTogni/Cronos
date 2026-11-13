@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CharacterCard from '@/components/CharacterCard.vue'
+import ConditionReveal from '@/components/ConditionReveal.vue'
 import DiceRoller from '@/components/DiceRoller.vue'
 import ImageOverlay from '@/components/ImageOverlay.vue'
 import LevelUpEffect from '@/components/LevelUpEffect.vue'
@@ -200,6 +201,7 @@ watch(tab, (t) => {
       <ImageOverlay :image="state.shownImage" />
       <ShopOverlay v-if="state.status === 'ACTIVE'" v-model="shopVisible" />
       <TransferInbox v-if="state.status === 'ACTIVE'" />
+      <ConditionReveal :conditions="me?.conditions" />
       <LevelUpEffect
         :level="me?.level"
         :hp-per-level="HP_PER_LEVEL"
