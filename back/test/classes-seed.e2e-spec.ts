@@ -14,6 +14,7 @@ interface SeedAbility {
   kind: string;
   name: string;
   manaCost: number;
+  dealsDamage?: boolean;
   crits?: Crit[];
   effect?: string;
   effectData?: { name?: string; condition?: string };
@@ -53,6 +54,28 @@ describe('prisma/seed/classes.json', () => {
   it('tem as 9 classes das fichas, sem id repetido', () => {
     expect(classes).toHaveLength(9);
     expect(new Set(classes.map((c) => c.id)).size).toBe(9);
+  });
+
+  it('marca como dano só os 7 ataques (o d20 vira o dano); efeitos não causam dano', () => {
+    const damaging = classes
+      .flatMap((c) => c.abilities)
+      .filter((a) => a.dealsDamage)
+      .map((a) => a.name)
+      .sort();
+    expect(damaging).toEqual(
+      [
+        'Golpe Pesado',
+        'Execução',
+        'Golpe Serrilhado',
+        'Passo Predatório',
+        'Toque Fúnebre',
+        'Corte Furtivo',
+        'Estilhaço Temporal',
+      ].sort(),
+    );
+    for (const a of classes.flatMap((c) => c.abilities)) {
+      if (a.effect) expect(a.dealsDamage).toBeUndefined();
+    }
   });
 
   it.each(classes.map((c) => [c.name, c] as const))(

@@ -19,8 +19,11 @@ interface Summon {
 interface Npc {
   id: string;
   name: string;
-  hp: number;
-  hpMax: number;
+  band: string;
+  /** Só o mestre recebe vida e anotações. */
+  hp?: number;
+  hpMax?: number;
+  notes?: string;
   conditions: Condition[];
 }
 interface Condition {
@@ -41,6 +44,7 @@ interface Character {
   hpMax: number;
   mana: number;
   manaMax: number;
+  instability: number;
   xp: number;
   level: number;
   summons: Summon[];
@@ -55,6 +59,13 @@ interface Log {
   pendingEffect: {
     source: string;
     conditions: { defId?: string; name?: string }[];
+  } | null;
+  pendingAction: {
+    abilityName: string;
+    manaCost: number;
+    needsRoll: boolean;
+    dealsDamage: boolean;
+    target: { kind: string; name: string } | null;
   } | null;
 }
 interface State {
@@ -186,8 +197,8 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       // personagem nasce com vida/mana da classe
       const morgana = started.characters.find((c) => c.name === 'Morgana')!;
       expect(morgana).toMatchObject({
-        hp: 20,
-        hpMax: 20,
+        hp: 30,
+        hpMax: 30,
         mana: 10,
         manaMax: 10,
       });
@@ -264,109 +275,174 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
   // ───────────── habilidades ─────────────
 
   describe('habilidades', () => {
-    it('Reanimar: desconta mana, resolve o crítico e cria a criatura', async () => {
-      const { morgana } = await activeCampaign();
+    /** O jogador declara a habilidade (e o alvo); o d20 é do mestre. */
+    const declare = (
+      c: Client,
+      characterId: string,
+      abilityId: string,
+      body: object = {},
+    ) => c.post(`/characters/${characterId}/abilities/${abilityId}/use`, body);
+    const logOf = (res: { body: unknown }) => (res.body as { log: Log }).log;
+    const resolve = (logId: string, body: object = {}) =>
+      master.post(`/logs/${logId}/resolve`, body);
+
+    it('Reanimar: declarar cobra a mana e espera o mestre; resolver aplica o crítico e cria a criatura', async () => {
+      const { id, morgana } = await activeCampaign();
       const reanimar = await ability(t, 'necromante', 'Reanimar');
 
-      const res = await master
-        .post(`/characters/${morgana.id}/abilities/${reanimar}/use`, {
-          rollMode: 'manual',
+      const declared = logOf(
+        await declare(kaua, morgana.id, reanimar).expect(200),
+      );
+      expect(declared.message).toBe('Morgana usa Reanimar (−1 mana).');
+      expect(declared.pendingAction).toMatchObject({
+        abilityName: 'Reanimar',
+        manaCost: 1,
+        needsRoll: true,
+        dealsDamage: false,
+      });
+      // a mana sai na declaração e a criatura ainda não existe
+      const waiting = await charOf(id, morgana.id);
+      expect(waiting.mana).toBe(9);
+      expect(waiting.summons).toEqual([]);
+
+      // só o mestre resolve, e precisa do d20
+      await kaua.post(`/logs/${declared.id}/resolve`, { roll: 19 }).expect(403);
+      await resolve(declared.id).expect(400);
+      await resolve(declared.id, { roll: 21 }).expect(400);
+
+      const res = logOf(
+        await resolve(declared.id, {
           roll: 19,
           summonName: 'Esqueleto do guarda',
-        })
-        .expect(200);
-      const log = (res.body as { log: Log }).log;
-      expect(log.roll).toBe(19);
-      expect(log.message).toContain('Morgana usou Reanimar (−1 mana)');
-      expect(log.message).toContain('revive parcialmente consciente');
-      expect(log.message).toContain('surgiu Esqueleto do guarda');
+        }).expect(200),
+      );
+      expect(res.roll).toBe(19);
+      expect(res.message).toContain('Morgana usou Reanimar');
+      expect(res.message).toContain('d20: 19');
+      expect(res.message).toContain('revive parcialmente consciente');
+      expect(res.message).toContain('surgiu Esqueleto do guarda');
 
-      const after = (
-        await state(
-          kaua,
-          (
-            await t.prisma.character.findUniqueOrThrow({
-              where: { id: morgana.id },
-            })
-          ).campaignId,
-        )
-      ).characters.find((c) => c.id === morgana.id)!;
+      const after = await charOf(id, morgana.id);
       expect(after.mana).toBe(9);
       expect(after.summons.map((s) => s.name)).toEqual(['Esqueleto do guarda']);
+
+      // o jogador lê a versão narrada, sem o d20
+      const asPlayer = (await state(kaua, id)).logs.find(
+        (l) => l.id === res.id,
+      )!;
+      expect(asPlayer.roll).toBeNull();
+      expect(asPlayer.message).not.toContain('d20');
+      expect(asPlayer.message).toContain('revive parcialmente consciente');
+
+      // já resolvida: não resolve nem nega de novo
+      await resolve(declared.id, { roll: 5 }).expect(400);
+      await master.post(`/logs/${declared.id}/deny`).expect(400);
     });
 
     it('Necromante só mantém 1 criatura: a nova substitui a antiga', async () => {
       const { id, morgana } = await activeCampaign();
       const reanimar = await ability(t, 'necromante', 'Reanimar');
-      const use = (summonName: string) =>
-        master
-          .post(`/characters/${morgana.id}/abilities/${reanimar}/use`, {
-            rollMode: 'none',
-            summonName,
-          })
-          .expect(200);
+      const summon = async (summonName: string) => {
+        const declared = logOf(
+          await declare(kaua, morgana.id, reanimar).expect(200),
+        );
+        return logOf(
+          await resolve(declared.id, { roll: 5, summonName }).expect(200),
+        );
+      };
 
-      await use('Rato');
-      const second = (await use('Lobo')).body as { log: Log };
-      expect(second.log.message).toContain('Rato desapareceu');
+      await summon('Rato');
+      const second = await summon('Lobo');
+      expect(second.message).toContain('Rato desapareceu');
 
       const after = await charOf(id, morgana.id);
       expect(after.summons.map((s) => s.name)).toEqual(['Lobo']);
       expect(after.mana).toBe(8);
     });
 
-    it('rolagem automática fica entre 1 e 20', async () => {
-      const { morgana } = await activeCampaign();
-      const toque = await ability(t, 'necromante', 'Toque Fúnebre');
-      const res = await kaua
-        .post(`/characters/${morgana.id}/abilities/${toque}/use`, {
-          rollMode: 'auto',
-        })
-        .expect(200);
-      const roll = (res.body as { log: Log }).log.roll!;
-      expect(roll).toBeGreaterThanOrEqual(1);
-      expect(roll).toBeLessThanOrEqual(20);
+    it('uma ação por vez; negar devolve a mana e nada acontece', async () => {
+      const { id, morgana } = await activeCampaign();
+      const reanimar = await ability(t, 'necromante', 'Reanimar');
+      const declared = logOf(
+        await declare(kaua, morgana.id, reanimar).expect(200),
+      );
+
+      // enquanto espera o mestre, não declara outra
+      const again = await declare(kaua, morgana.id, reanimar).expect(400);
+      expect((again.body as { message: string }).message).toContain(
+        'já tem uma ação aguardando o mestre',
+      );
+
+      await joana.post(`/logs/${declared.id}/deny`).expect(403);
+      const denied = logOf(
+        await master.post(`/logs/${declared.id}/deny`).expect(200),
+      );
+      expect(denied.message).toBe(
+        'Morgana não consegue usar Reanimar (a mana volta)',
+      );
+      const after = await charOf(id, morgana.id);
+      expect(after.mana).toBe(10);
+      expect(after.summons).toEqual([]);
+
+      const entry = (await state(master, id)).logs.find(
+        (l) => l.id === declared.id,
+      )!;
+      expect(entry.pendingAction).toBeNull();
+      expect(entry.revertible).toBe(false);
+      await resolve(declared.id, { roll: 5 }).expect(400);
+
+      // livre para declarar de novo
+      await declare(kaua, morgana.id, reanimar).expect(200);
     });
 
-    it('mana insuficiente e d20 manual inválido são recusados', async () => {
+    it('desfazer a declaração ainda pendente também devolve a mana e fecha a ação', async () => {
+      const { id, morgana } = await activeCampaign();
+      const reanimar = await ability(t, 'necromante', 'Reanimar');
+      const declared = logOf(
+        await declare(kaua, morgana.id, reanimar).expect(200),
+      );
+      await master.post(`/logs/${declared.id}/revert`).expect(200);
+      expect((await charOf(id, morgana.id)).mana).toBe(10);
+      await resolve(declared.id, { roll: 5 }).expect(400);
+    });
+
+    it('mana insuficiente e d20 inválido são recusados', async () => {
       const { morgana } = await activeCampaign();
       const sacrificio = await ability(t, 'necromante', 'Sacrifício Macabro');
       await t.prisma.character.update({
         where: { id: morgana.id },
         data: { mana: 4 },
       });
-      const res = await kaua
-        .post(`/characters/${morgana.id}/abilities/${sacrificio}/use`, {
-          rollMode: 'none',
-        })
-        .expect(400);
+      const res = await declare(kaua, morgana.id, sacrificio).expect(400);
       expect((res.body as { message: string }).message).toContain(
         'Mana insuficiente',
       );
 
       const reanimar = await ability(t, 'necromante', 'Reanimar');
-      await kaua
-        .post(`/characters/${morgana.id}/abilities/${reanimar}/use`, {
-          rollMode: 'manual',
-          roll: 21,
-        })
-        .expect(400);
+      const declared = logOf(
+        await declare(kaua, morgana.id, reanimar).expect(200),
+      );
+      await resolve(declared.id, { roll: 0 }).expect(400);
+      await resolve(declared.id, { roll: 21 }).expect(400);
     });
 
-    it('Sacrifício Macabro exige e consome a criatura', async () => {
+    it('Sacrifício Macabro exige e consome a criatura (sem dado, resolve na hora)', async () => {
       const { id, morgana } = await activeCampaign();
       const sacrificio = await ability(t, 'necromante', 'Sacrifício Macabro');
       const reanimar = await ability(t, 'necromante', 'Reanimar');
-      const url = `/characters/${morgana.id}/abilities/${sacrificio}/use`;
 
-      await kaua.post(url, { rollMode: 'none' }).expect(400);
+      await declare(kaua, morgana.id, sacrificio).expect(400);
 
-      await kaua
-        .post(`/characters/${morgana.id}/abilities/${reanimar}/use`, {
-          rollMode: 'none',
-        })
-        .expect(200);
-      await kaua.post(url, { rollMode: 'none' }).expect(200);
+      const declared = logOf(
+        await declare(kaua, morgana.id, reanimar).expect(200),
+      );
+      await resolve(declared.id, { roll: 5 }).expect(200);
+
+      const used = logOf(
+        await declare(kaua, morgana.id, sacrificio).expect(200),
+      );
+      expect(used.pendingAction).toBeNull();
+      expect(used.message).toContain('foi sacrificada');
 
       const after = await charOf(id, morgana.id);
       expect(after.summons).toEqual([]);
@@ -382,23 +458,15 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
         'Máscara da Serenidade',
       );
 
-      await kaua
-        .post(`/characters/${morgana.id}/abilities/${serenidade}/use`, {
-          rollMode: 'none',
-        })
-        .expect(404);
-      await joana
-        .post(`/characters/${morgana.id}/abilities/${reanimar}/use`, {
-          rollMode: 'none',
-        })
-        .expect(403);
+      await declare(kaua, morgana.id, serenidade).expect(404);
+      await declare(joana, morgana.id, reanimar).expect(403);
       await kaua.post(`/characters/${veu.id}/adjust`, { hp: -5 }).expect(403);
       await kaua
         .post(`/characters/${morgana.id}/adjust`, { hp: 5 })
         .expect(403);
     });
 
-    it('máscaras: o alvo só carrega uma, e a nova substitui a anterior', async () => {
+    it('máscaras: o jogador escolhe o alvo, o mestre dá o d20; o alvo só carrega uma e desfazer volta ao pendente', async () => {
       const { id, morgana, veu } = await activeCampaign();
       const serenidade = await ability(
         t,
@@ -406,80 +474,224 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
         'Máscara da Serenidade',
       );
       const carrasco = await ability(t, 'mascareiro', 'Máscara do Carrasco');
+      const onMorgana = { target: { kind: 'character', id: morgana.id } };
 
-      await master
-        .post(`/characters/${veu.id}/abilities/${serenidade}/use`, {
-          rollMode: 'none',
-          targetCharacterId: morgana.id,
-        })
-        .expect(200);
-      const res = await master
-        .post(`/characters/${veu.id}/abilities/${carrasco}/use`, {
-          rollMode: 'manual',
-          roll: 20,
-          targetCharacterId: morgana.id,
-        })
-        .expect(200);
-      const log = (res.body as { log: Log }).log;
-      expect(log.message).toContain('Véu usou Máscara do Carrasco em Morgana');
-      expect(log.message).toContain('perde o autocontrole');
-      expect(log.message).toContain('substituiu Máscara da Serenidade');
+      const first = logOf(
+        await declare(joana, veu.id, serenidade, onMorgana).expect(200),
+      );
+      await resolve(first.id, { roll: 5 }).expect(200);
+      const second = logOf(
+        await declare(joana, veu.id, carrasco, onMorgana).expect(200),
+      );
+      const res = logOf(await resolve(second.id, { roll: 20 }).expect(200));
+      expect(res.message).toContain('Véu usou Máscara do Carrasco em Morgana');
+      expect(res.message).toContain('perde o autocontrole');
+      expect(res.message).toContain('substituiu Máscara da Serenidade');
 
       let target = await charOf(id, morgana.id);
       expect(target.conditions.map((c) => c.name)).toEqual([
         'Máscara do Carrasco',
       ]);
 
-      // desfazer a segunda máscara devolve a primeira
-      await master.post(`/logs/${log.id}/revert`).expect(200);
+      // desfazer a resolução devolve a primeira máscara e a ação volta a esperar o mestre
+      await master.post(`/logs/${res.id}/revert`).expect(200);
       target = await charOf(id, morgana.id);
       expect(target.conditions.map((c) => c.name)).toEqual([
         'Máscara da Serenidade',
       ]);
+      const reopened = (await state(master, id)).logs.find(
+        (l) => l.id === second.id,
+      )!;
+      expect(reopened.pendingAction).not.toBeNull();
+      expect((await charOf(id, veu.id)).mana).toBe(10 - 1 - 2);
+
+      // a declaração resolvida não se desfaz sozinha (só a resolução)
+      await master.post(`/logs/${first.id}/revert`).expect(400);
+
+      // negar a ação reaberta devolve a mana dela
+      await master.post(`/logs/${second.id}/deny`).expect(200);
       expect((await charOf(id, veu.id)).mana).toBe(10 - 1);
     });
 
-    it('alvo fora da party fica só no texto do log', async () => {
-      const { id, veu } = await activeCampaign();
+    it('o alvo precisa existir na campanha e habilidade de alvo exige um', async () => {
+      const { veu } = await activeCampaign();
       const vazia = await ability(t, 'mascareiro', 'Máscara Vazia');
-      const res = await master
-        .post(`/characters/${veu.id}/abilities/${vazia}/use`, {
-          rollMode: 'none',
-          target: 'o guarda da ponte',
-        })
-        .expect(200);
-      expect((res.body as { log: Log }).log.message).toContain(
-        'em o guarda da ponte',
-      );
-      const s = await state(master, id);
-      expect(s.characters.every((c) => c.conditions.length === 0)).toBe(true);
+      const sem = await declare(joana, veu.id, vazia).expect(400);
+      expect((sem.body as { message: string }).message).toBe('Escolha o alvo');
+      await declare(joana, veu.id, vazia, {
+        target: { kind: 'npc', id: '00000000-0000-4000-8000-000000000000' },
+      }).expect(400);
+      await declare(joana, veu.id, vazia, {
+        target: { kind: 'character' },
+      }).expect(400);
     });
 
-    it('jogador só escolhe a habilidade: alvo e nome da criatura são ignorados', async () => {
+    it('efeito em aliado ou em si resolve na hora; em inimigo espera a confirmação do mestre', async () => {
       const { id, morgana, veu } = await activeCampaign();
-      const carrasco = await ability(t, 'mascareiro', 'Máscara do Carrasco');
-      const res = await joana
-        .post(`/characters/${veu.id}/abilities/${carrasco}/use`, {
-          rollMode: 'none',
-          targetCharacterId: morgana.id,
-          target: 'o guarda',
-        })
-        .expect(200);
-      const msg = (res.body as { log: Log }).log.message;
-      expect(msg).not.toContain('em Morgana');
-      expect(msg).not.toContain('em o guarda');
-      expect((await charOf(id, morgana.id)).conditions).toEqual([]);
+      const vazia = await ability(t, 'mascareiro', 'Máscara Vazia'); // sem faixa de crítico
+      await t.prisma.character.update({
+        where: { id: veu.id },
+        data: { mana: 10 },
+      });
 
+      const ally = logOf(
+        await declare(joana, veu.id, vazia, {
+          target: { kind: 'character', id: morgana.id },
+        }).expect(200),
+      );
+      expect(ally.pendingAction).toBeNull();
+      expect(ally.message).toContain('Máscara Vazia aplicada em Morgana');
+      expect((await charOf(id, morgana.id)).conditions).toHaveLength(1);
+
+      await master
+        .post(`/campaigns/${id}/npcs`, { name: 'Ogro', hpMax: 20 })
+        .expect(201);
+      const ogro = (await state(master, id)).npcs[0];
+      const enemy = logOf(
+        await declare(joana, veu.id, vazia, {
+          target: { kind: 'npc', id: ogro.id },
+        }).expect(200),
+      );
+      expect(enemy.pendingAction).toMatchObject({
+        needsRoll: false,
+        target: { kind: 'npc', name: 'Ogro' },
+      });
+      expect((await state(master, id)).npcs[0].conditions).toEqual([]);
+
+      // sem dado: o mestre só confirma
+      await resolve(enemy.id).expect(200);
+      expect((await state(master, id)).npcs[0].conditions).toMatchObject([
+        { name: 'Máscara Vazia', source: 'Véu' },
+      ]);
+    });
+
+    it('ataque: o d20 do mestre vira o dano no inimigo, e o jogador só vê a faixa de saúde', async () => {
+      const { id, morgana, veu } = await activeCampaign();
+      const toque = await ability(t, 'necromante', 'Toque Fúnebre');
+      await master
+        .post(`/campaigns/${id}/npcs`, { name: 'Goblin', hpMax: 20 })
+        .expect(201);
+      const goblin = (await state(master, id)).npcs[0];
+      const hitGoblin = { target: { kind: 'npc', id: goblin.id } };
+
+      // ataque pede um inimigo como alvo
+      await declare(kaua, morgana.id, toque).expect(400);
+      await declare(kaua, morgana.id, toque, {
+        target: { kind: 'character', id: veu.id },
+      }).expect(400);
+
+      const declared = logOf(
+        await declare(kaua, morgana.id, toque, hitGoblin).expect(200),
+      );
+      expect(declared.message).toBe('Morgana usa Toque Fúnebre em Goblin.');
+      expect(declared.pendingAction).toMatchObject({
+        needsRoll: true,
+        dealsDamage: true,
+        target: { kind: 'npc', name: 'Goblin' },
+      });
+      await resolve(declared.id).expect(400); // sem d20 não resolve
+
+      const res = logOf(await resolve(declared.id, { roll: 7 }).expect(200));
+      expect(res.message).toBe(
+        'Morgana usou Toque Fúnebre em Goblin · d20: 7 → 7 de dano em Goblin (vida 13/20)',
+      );
+      expect((await state(master, id)).npcs[0]).toMatchObject({
+        hp: 13,
+        band: 'WOUNDED',
+      });
+      const asPlayer = await state(kaua, id);
+      expect(asPlayer.npcs[0]).toMatchObject({ band: 'WOUNDED' });
+      expect(asPlayer.npcs[0]).not.toHaveProperty('hp');
+      expect(asPlayer.logs.find((l) => l.id === res.id)).toMatchObject({
+        message:
+          'Morgana usou Toque Fúnebre em Goblin — Goblin foi atingido — ferido',
+        roll: null,
+      });
+
+      // desfazer devolve a vida do inimigo e reabre a ação
+      await master.post(`/logs/${res.id}/revert`).expect(200);
+      expect((await state(master, id)).npcs[0].hp).toBe(20);
+      const reopened = (await state(master, id)).logs.find(
+        (l) => l.id === declared.id,
+      )!;
+      expect(reopened.pendingAction).not.toBeNull();
+
+      // um 20 derruba o goblin de 20 de vida
+      const killed = logOf(
+        await resolve(declared.id, { roll: 20 }).expect(200),
+      );
+      expect(killed.message).toContain('(vida 0/20) — caiu!');
+      expect((await state(kaua, id)).npcs[0].band).toBe('DOWN');
+    });
+
+    it('quem está caído (0 de vida) não usa habilidade', async () => {
+      const { morgana } = await activeCampaign();
       const reanimar = await ability(t, 'necromante', 'Reanimar');
-      await kaua
-        .post(`/characters/${morgana.id}/abilities/${reanimar}/use`, {
-          rollMode: 'none',
-          summonName: 'Dragão',
-        })
+      await master
+        .post(`/characters/${morgana.id}/adjust`, { hp: -50 })
         .expect(200);
-      const summons = (await charOf(id, morgana.id)).summons;
-      expect(summons).toHaveLength(1);
-      expect(summons[0].name).not.toBe('Dragão');
+      const res = await declare(kaua, morgana.id, reanimar).expect(400);
+      expect((res.body as { message: string }).message).toContain(
+        'está caído e não pode agir',
+      );
+      // curado, volta a agir
+      await master
+        .post(`/characters/${morgana.id}/adjust`, { hp: 5 })
+        .expect(200);
+      await declare(kaua, morgana.id, reanimar).expect(200);
+    });
+
+    it('Tudo ou Nada pergunta o que se aposta; a resposta vai no log', async () => {
+      const { id, veu } = await activeCampaign();
+      await t.prisma.character.update({
+        where: { campaignId_userId: { campaignId: id, userId: joanaId } },
+        data: { classId: 'apostador' },
+      });
+      const tudo = await ability(t, 'apostador', 'Tudo ou Nada');
+      const sem = await declare(joana, veu.id, tudo).expect(400);
+      expect((sem.body as { message: string }).message).toBe(
+        'O que você aposta?',
+      );
+      const used = logOf(
+        await declare(joana, veu.id, tudo, { note: 'a própria sorte' }).expect(
+          200,
+        ),
+      );
+      expect(used.pendingAction).toBeNull();
+      expect(used.message).toBe(
+        'Véu usou Tudo ou Nada (−2 mana) — "a própria sorte"',
+      );
+    });
+
+    it('Tecelão: cada uso soma instabilidade e, no limite, vem o paradoxo e zera', async () => {
+      const { id } = await activeCampaign();
+      const tecelao = await t.prisma.character.update({
+        where: { campaignId_userId: { campaignId: id, userId: joanaId } },
+        data: { classId: 'tecelao-do-tempo' },
+      });
+      const dilatacao = await ability(t, 'tecelao-do-tempo', 'Dilatação');
+
+      const first = logOf(
+        await declare(joana, tecelao.id, dilatacao).expect(200),
+      );
+      expect((await charOf(id, tecelao.id)).instability).toBe(1);
+      await resolve(first.id, { roll: 5 }).expect(200);
+
+      await t.prisma.character.update({
+        where: { id: tecelao.id },
+        data: { instability: 4 },
+      });
+      const last = logOf(
+        await declare(joana, tecelao.id, dilatacao).expect(200),
+      );
+      expect(last.message).toContain(
+        'Paradoxo! O tempo se rasga ao redor de Véu.',
+      );
+      expect((await charOf(id, tecelao.id)).instability).toBe(0);
+
+      // negar a declaração devolve a instabilidade que ela tinha antes
+      await master.post(`/logs/${last.id}/deny`).expect(200);
+      expect((await charOf(id, tecelao.id)).instability).toBe(4);
     });
 
     it('habilidade só funciona com a aventura em andamento', async () => {
@@ -497,11 +709,7 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
           .expect(201)
       ).body as State;
       const reanimar = await ability(t, 'necromante', 'Reanimar');
-      await kaua
-        .post(`/characters/${s.characters[0].id}/abilities/${reanimar}/use`, {
-          rollMode: 'none',
-        })
-        .expect(403);
+      await declare(kaua, s.characters[0].id, reanimar).expect(403);
     });
   });
 
@@ -514,13 +722,13 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       const dmg = (
         await master
           .post(`/characters/${morgana.id}/adjust`, {
-            hp: -30,
+            hp: -50,
             reason: 'mordida do lobo',
           })
           .expect(200)
       ).body as { log: Log };
       expect(dmg.log.message).toBe(
-        'Morgana recebeu 30 de dano (vida 0/20) — caiu! — mordida do lobo',
+        'Morgana recebeu 50 de dano (vida 0/30) — caiu! — mordida do lobo',
       );
       expect((await charOf(id, morgana.id)).hp).toBe(0);
 
@@ -530,7 +738,7 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
         .expect(200);
 
       await master.post(`/logs/${dmg.log.id}/revert`).expect(200);
-      expect((await charOf(id, morgana.id)).hp).toBe(20); // 3 + 20 = 23, limitado a 20
+      expect((await charOf(id, morgana.id)).hp).toBe(30); // 3 + 30 = 33, limitado a 30
 
       // não desfaz duas vezes
       await master.post(`/logs/${dmg.log.id}/revert`).expect(400);
@@ -539,7 +747,7 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
 
       const logs = (await state(kaua, id)).logs;
       expect(logs.find((l) => l.id === dmg.log.id)?.revertible).toBe(false);
-      expect(logs.at(-1)?.message).toContain('Desfeito: Morgana recebeu 30');
+      expect(logs.at(-1)?.message).toContain('Desfeito: Morgana recebeu 50');
     });
 
     it('mana, XP e nível', async () => {
@@ -555,27 +763,81 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
         mana: 6,
         xp: 50,
         level: 2,
+        hpMax: 32,
+        hp: 32,
       });
       await master.post(`/characters/${morgana.id}/adjust`, {}).expect(400);
+    });
+
+    it('subir de nível dá +2 de vida máxima e atual; descer tira; desfazer devolve', async () => {
+      const { id, morgana } = await activeCampaign();
+      await master
+        .post(`/characters/${morgana.id}/adjust`, { hp: -10 })
+        .expect(200);
+      const up = (
+        await master
+          .post(`/characters/${morgana.id}/adjust`, { level: 2 })
+          .expect(200)
+      ).body as { log: Log };
+      expect(up.log.message).toBe(
+        'Morgana subiu para o nível 3 (vida máxima +4)',
+      );
+      expect(await charOf(id, morgana.id)).toMatchObject({
+        level: 3,
+        hpMax: 34,
+        hp: 24, // 20 + 4
+      });
+
+      await master.post(`/logs/${up.log.id}/revert`).expect(200);
+      expect(await charOf(id, morgana.id)).toMatchObject({
+        level: 1,
+        hpMax: 30,
+        hp: 20,
+      });
+
+      // descer de nível tira a vida máxima e a atual não passa dela
+      await master
+        .post(`/characters/${morgana.id}/adjust`, { hp: 10 })
+        .expect(200);
+      await master
+        .post(`/characters/${morgana.id}/adjust`, { level: 3 })
+        .expect(200);
+      const down = (
+        await master
+          .post(`/characters/${morgana.id}/adjust`, { level: -3 })
+          .expect(200)
+      ).body as { log: Log };
+      expect(down.log.message).toContain('(vida máxima −6)');
+      expect(await charOf(id, morgana.id)).toMatchObject({
+        level: 1,
+        hpMax: 30,
+      });
     });
 
     it('desfazer o Reanimar que substituiu a criatura traz a antiga de volta', async () => {
       const { id, morgana } = await activeCampaign();
       const reanimar = await ability(t, 'necromante', 'Reanimar');
-      const url = `/characters/${morgana.id}/abilities/${reanimar}/use`;
-      await master
-        .post(url, { rollMode: 'none', summonName: 'Rato' })
-        .expect(200);
-      const second = (
-        await master
-          .post(url, { rollMode: 'none', summonName: 'Lobo' })
-          .expect(200)
-      ).body as { log: Log };
+      const summon = async (summonName: string) => {
+        const declared = (
+          await kaua
+            .post(`/characters/${morgana.id}/abilities/${reanimar}/use`)
+            .expect(200)
+        ).body as { log: Log };
+        return (
+          (
+            await master
+              .post(`/logs/${declared.log.id}/resolve`, { roll: 5, summonName })
+              .expect(200)
+          ).body as { log: Log }
+        ).log;
+      };
+      await summon('Rato');
+      const second = await summon('Lobo');
 
-      await master.post(`/logs/${second.log.id}/revert`).expect(200);
+      await master.post(`/logs/${second.id}/revert`).expect(200);
       const after = await charOf(id, morgana.id);
       expect(after.summons.map((s) => s.name)).toEqual(['Rato']);
-      expect(after.mana).toBe(9);
+      expect(after.mana).toBe(8); // as duas declarações cobraram; desfazer a resolução não devolve
     });
 
     it('ficha: mestre muda vida máxima, jogador só as anotações', async () => {
@@ -698,6 +960,7 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
 
   describe('combate e condições', () => {
     const toque = () => ability(t, 'necromante', 'Toque Fúnebre');
+    const reanimar = () => ability(t, 'necromante', 'Reanimar');
     const rosto = () => ability(t, 'mascareiro', 'Rosto Vazio');
     const next = (c: Client, id: string, body: object = {}) =>
       c.post(`/campaigns/${id}/combat/next`, body);
@@ -736,9 +999,7 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
 
       // turno do mestre: ninguém usa habilidade nem passa a vez dele
       await kaua
-        .post(`/characters/${morgana.id}/abilities/${await toque()}/use`, {
-          rollMode: 'none',
-        })
+        .post(`/characters/${morgana.id}/abilities/${await toque()}/use`)
         .expect(403);
       await next(kaua, id).expect(403);
 
@@ -748,20 +1009,16 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       s = await state(master, id);
       expect(s.combat!.currentCharacterId).toBe(morgana.id);
       expect(s.logs.at(-1)!.message).toBe(
-        'Fim do turno do Mestre. Vez de Morgana.',
+        'O mundo termina de reagir. O foco passa a Morgana.',
       );
 
       // vez da Morgana: Joana espera
       await joana
-        .post(`/characters/${veu.id}/abilities/${await rosto()}/use`, {
-          rollMode: 'none',
-        })
+        .post(`/characters/${veu.id}/abilities/${await rosto()}/use`)
         .expect(403);
       await next(joana, id).expect(403);
       await kaua
-        .post(`/characters/${morgana.id}/abilities/${await toque()}/use`, {
-          rollMode: 'none',
-        })
+        .post(`/characters/${morgana.id}/abilities/${await reanimar()}/use`)
         .expect(200);
 
       await next(kaua, id).expect(200);
@@ -770,16 +1027,14 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       s = await state(master, id);
       expect(s.combat).toMatchObject({ round: 2, currentCharacterId: null });
       expect(s.logs.at(-1)!.message).toBe(
-        'Fim do turno de Véu. Rodada 2 — vez do Mestre.',
+        'Véu passa a vez. Rodada 2 — o mundo reage.',
       );
 
       // fora de combate todo mundo age livre
       await master.post(`/campaigns/${id}/combat/end`).expect(200);
       expect((await state(master, id)).combat).toBeNull();
       await joana
-        .post(`/characters/${veu.id}/abilities/${await rosto()}/use`, {
-          rollMode: 'none',
-        })
+        .post(`/characters/${veu.id}/abilities/${await rosto()}/use`)
         .expect(200);
       await next(master, id).expect(403);
     });
@@ -829,19 +1084,19 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       });
 
       await next(master, id).expect(200); // fim do mestre: nada acontece
-      expect((await charOf(id, morgana.id)).hp).toBe(20);
+      expect((await charOf(id, morgana.id)).hp).toBe(30);
       expect((await cond())!.turnsLeft).toBe(3);
 
       await next(kaua, id).expect(200); // fim da Morgana
-      expect((await charOf(id, morgana.id)).hp).toBe(19);
+      expect((await charOf(id, morgana.id)).hp).toBe(29);
       expect((await cond())!.turnsLeft).toBe(2);
       expect((await lastLog(id)).message).toBe(
-        'Fim do turno de Morgana: Morgana sofreu 1 de dano por Sangrando (vida 19/20). Vez de Véu.',
+        'Morgana passa a vez: Morgana sofreu 1 de dano por Sangrando (vida 29/30). O foco passa a Véu.',
       );
 
       // mais 2 turnos da Morgana (3 passes por rodada): acabou
       for (let i = 0; i < 6; i++) await next(master, id).expect(200);
-      expect((await charOf(id, morgana.id)).hp).toBe(17);
+      expect((await charOf(id, morgana.id)).hp).toBe(27);
       expect(await cond()).toBeUndefined();
       const ended = (await state(master, id)).logs.find((l) =>
         l.message.includes('Sangrando acabou em Morgana'),
@@ -850,7 +1105,7 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
 
       // desfazer o último passe traz o sangramento e a vida de volta
       await master.post(`/logs/${ended.id}/revert`).expect(200);
-      expect((await charOf(id, morgana.id)).hp).toBe(18);
+      expect((await charOf(id, morgana.id)).hp).toBe(28);
       expect((await cond())!.turnsLeft).toBe(1);
       expect((await state(master, id)).combat!.currentCharacterId).toBe(
         morgana.id,
@@ -858,7 +1113,8 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
 
       // passes antigos não podem ser desfeitos
       const old = (await state(master, id)).logs.find(
-        (l) => l.message === 'Fim do turno do Mestre. Vez de Morgana.',
+        (l) =>
+          l.message === 'O mundo termina de reagir. O foco passa a Morgana.',
       )!;
       await master.post(`/logs/${old.id}/revert`).expect(400);
     });
@@ -874,9 +1130,32 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       await next(master, id).expect(200);
       expect((await state(master, id)).combat!.currentCharacterId).toBe(veu.id);
       expect((await lastLog(id)).message).toBe(
-        'Fim do turno do Mestre: Morgana perde a vez (Incapacitado) e Incapacitado acabou em Morgana. Vez de Véu.',
+        'O mundo termina de reagir: Morgana perde a vez (Incapacitado) e Incapacitado acabou em Morgana. O foco passa a Véu.',
       );
       expect((await charOf(id, morgana.id)).conditions).toEqual([]);
+    });
+
+    it('quem está caído (0 de vida) perde a vez e volta quando é curado', async () => {
+      const { id, morgana, veu } = await activeCampaign();
+      await master
+        .post(`/characters/${morgana.id}/adjust`, { hp: -50 })
+        .expect(200);
+      await master.post(`/campaigns/${id}/combat/start`).expect(200);
+      await next(master, id).expect(200);
+      expect((await state(master, id)).combat!.currentCharacterId).toBe(veu.id);
+      expect((await lastLog(id)).message).toBe(
+        'O mundo termina de reagir: Morgana está caído e perde a vez. O foco passa a Véu.',
+      );
+
+      // curada, Morgana volta a ter a vez na rodada seguinte
+      await next(joana, id).expect(200);
+      await master
+        .post(`/characters/${morgana.id}/adjust`, { hp: 5 })
+        .expect(200);
+      await next(master, id).expect(200);
+      expect((await state(master, id)).combat!.currentCharacterId).toBe(
+        morgana.id,
+      );
     });
 
     it('condição livre com valores próprios e polaridade', async () => {
@@ -971,7 +1250,7 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       expect(g.hp).toBe(3);
       expect(g.conditions[0].turnsLeft).toBe(1);
       expect((await state(master, id)).logs.at(-1)!.message).toBe(
-        'Fim do turno do Mestre: Goblin sofreu 2 de dano por Queimando (vida 3/8). Vez de Morgana.',
+        'O mundo termina de reagir: Goblin sofreu 2 de dano por Queimando (vida 3/8). O foco passa a Morgana.',
       );
 
       // condição de inimigo: jogador não remove, mestre remove
@@ -994,26 +1273,141 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       expect(await npcOf(id, 'Goblin')).toBeUndefined();
     });
 
-    it('efeito no alvo usado pelo jogador fica pendente até o mestre aplicar', async () => {
-      const { id, morgana, veu } = await activeCampaign();
-      const serenidade = await ability(
-        t,
-        'mascareiro',
-        'Máscara da Serenidade',
+    it('o jogador vê só a faixa de saúde do inimigo; vida e anotações são do mestre', async () => {
+      const { id } = await activeCampaign();
+      await master
+        .post(`/campaigns/${id}/npcs`, { name: 'Goblin', hpMax: 8 })
+        .expect(201);
+      const goblin = (await npcOf(id, 'Goblin'))!;
+      await master
+        .patch(`/npcs/${goblin.id}`, { notes: 'foge com 2 de vida' })
+        .expect(200);
+
+      // o mestre recebe os números e as anotações
+      expect(await npcOf(id, 'Goblin')).toMatchObject({
+        hp: 8,
+        hpMax: 8,
+        band: 'INTACT',
+        notes: 'foge com 2 de vida',
+      });
+
+      // o jogador recebe só a faixa e as condições
+      const seenBy = async (c: Client) =>
+        (await state(c, id)).npcs.find((n) => n.name === 'Goblin')!;
+      const seen = await seenBy(kaua);
+      expect(seen).toMatchObject({ name: 'Goblin', band: 'INTACT' });
+      for (const secret of ['hp', 'hpMax', 'notes']) {
+        expect(seen).not.toHaveProperty(secret);
+      }
+
+      // a faixa acompanha a vida: >50%, >25%, >0 e 0
+      for (const [damage, band] of [
+        [-3, 'WOUNDED'], //   5/8
+        [-2, 'BADLY_WOUNDED'], // 3/8
+        [-2, 'NEAR_DEATH'], //    1/8
+        [-1, 'DOWN'], //          0/8
+      ] as const) {
+        await master.post(`/npcs/${goblin.id}/adjust`, { hp: damage });
+        expect((await seenBy(kaua)).band).toBe(band);
+      }
+    });
+
+    it('o log do inimigo tem duas versões: o mestre lê os números, o jogador a narração', async () => {
+      const { id } = await activeCampaign();
+      const created = await master
+        .post(`/campaigns/${id}/npcs`, { name: 'Goblin', hpMax: 8 })
+        .expect(201);
+      const goblin = (await npcOf(id, 'Goblin'))!;
+      const hit = await master
+        .post(`/npcs/${goblin.id}/adjust`, { hp: -3, reason: 'flechada' })
+        .expect(200);
+
+      // a resposta HTTP já vem na versão de quem chamou
+      expect((created.body as { log: Log }).log.message).toBe(
+        'Goblin entrou em cena (vida 8/8)',
       );
-      const used = (
+      expect((hit.body as { log: Log }).log.message).toBe(
+        'Goblin recebeu 3 de dano (vida 5/8) — flechada',
+      );
+
+      const messages = async (c: Client) =>
+        (await state(c, id)).logs.map((l) => l.message);
+      expect(await messages(master)).toEqual(
+        expect.arrayContaining([
+          'Goblin entrou em cena (vida 8/8)',
+          'Goblin recebeu 3 de dano (vida 5/8) — flechada',
+        ]),
+      );
+      const asPlayer = await messages(kaua);
+      expect(asPlayer).toEqual(
+        expect.arrayContaining([
+          'Goblin entrou em cena',
+          'Goblin foi atingido — ferido — flechada',
+        ]),
+      );
+      // nada de número da vida do inimigo na versão dos jogadores
+      expect(asPlayer.filter((m) => m.includes('Goblin'))).not.toContainEqual(
+        expect.stringMatching(/\d/),
+      );
+      // e o texto do mestre não vaza nem como campo à parte
+      const logs = (await state(kaua, id)).logs;
+      expect(JSON.stringify(logs)).not.toContain('masterMessage');
+      expect(JSON.stringify(logs)).not.toContain('vida 5/8');
+    });
+
+    it('o fim do turno do mestre não revela a vida do inimigo aos jogadores', async () => {
+      const { id } = await activeCampaign();
+      await master
+        .post(`/campaigns/${id}/npcs`, { name: 'Goblin', hpMax: 8 })
+        .expect(201);
+      const goblin = (await npcOf(id, 'Goblin'))!;
+      await master.post(`/npcs/${goblin.id}/adjust`, { hp: -3 }).expect(200);
+      await master
+        .post(`/npcs/${goblin.id}/conditions`, { defId: 'queimando' })
+        .expect(201);
+      await master.post(`/campaigns/${id}/combat/start`).expect(200);
+      await next(master, id).expect(200);
+
+      expect((await state(master, id)).logs.at(-1)!.message).toBe(
+        'O mundo termina de reagir: Goblin sofreu 2 de dano por Queimando (vida 3/8). O foco passa a Morgana.',
+      );
+      expect((await state(kaua, id)).logs.at(-1)!.message).toBe(
+        'O mundo termina de reagir: Goblin sofreu dano por Queimando. O foco passa a Morgana.',
+      );
+    });
+
+    /** Joana vira Tecelão; Dilatação com 20 e sem alvo deixa "Congelado no tempo" pendente. */
+    async function pendingFreeze() {
+      const camp = await activeCampaign();
+      const tecelao = await t.prisma.character.update({
+        where: {
+          campaignId_userId: { campaignId: camp.id, userId: joanaId },
+        },
+        data: { classId: 'tecelao-do-tempo' },
+      });
+      const dilatacao = await ability(t, 'tecelao-do-tempo', 'Dilatação');
+      const declared = (
         await joana
-          .post(`/characters/${veu.id}/abilities/${serenidade}/use`, {
-            rollMode: 'none',
-          })
+          .post(`/characters/${tecelao.id}/abilities/${dilatacao}/use`)
           .expect(200)
       ).body as { log: Log };
-      expect(used.log.message).toContain(
-        'aguardando o mestre aplicar Máscara da Serenidade',
+      const used = (
+        await master
+          .post(`/logs/${declared.log.id}/resolve`, { roll: 20 })
+          .expect(200)
+      ).body as { log: Log };
+      return { ...camp, tecelao, dilatacao, used: used.log };
+    }
+
+    it('crítico sem alvo deixa a condição pendente até o mestre aplicar', async () => {
+      const { id, morgana, used } = await pendingFreeze();
+      expect(used.message).toContain('tempo congela brevemente');
+      expect(used.message).toContain(
+        'aguardando o mestre aplicar Congelado no tempo',
       );
-      expect(used.log.pendingEffect).toEqual({
+      expect(used.pendingEffect).toEqual({
         source: 'Véu',
-        conditions: [{ defId: 'mascara-da-serenidade' }],
+        conditions: [{ defId: 'congelado-no-tempo' }],
       });
 
       await master
@@ -1023,91 +1417,53 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
 
       // jogador não aplica; alvo de outra campanha/inexistente é recusado
       await joana
-        .post(`/logs/${used.log.id}/apply`, { kind: 'npc', id: ogro.id })
+        .post(`/logs/${used.id}/apply`, { kind: 'npc', id: ogro.id })
         .expect(403);
       await master
-        .post(`/logs/${used.log.id}/apply`, {
-          kind: 'npc',
-          id: morgana.id,
-        })
+        .post(`/logs/${used.id}/apply`, { kind: 'npc', id: morgana.id })
         .expect(400);
 
       const applied = (
         await master
-          .post(`/logs/${used.log.id}/apply`, { kind: 'npc', id: ogro.id })
+          .post(`/logs/${used.id}/apply`, { kind: 'npc', id: ogro.id })
           .expect(200)
       ).body as { log: Log };
-      expect(applied.log.message).toBe(
-        'Máscara da Serenidade, de Véu, aplicada em Ogro',
-      );
+      expect(applied.log.message).toContain('aplicada em Ogro');
       expect((await npcOf(id, 'Ogro'))!.conditions).toMatchObject([
-        { name: 'Máscara da Serenidade', source: 'Véu' },
+        { name: 'Congelado no tempo', source: 'Véu' },
       ]);
-      expect((await logById(id, used.log.id)).pendingEffect).toBeNull();
+      expect((await logById(id, used.id)).pendingEffect).toBeNull();
       // segundo clique: já foi aplicado
       await master
-        .post(`/logs/${used.log.id}/apply`, { kind: 'npc', id: ogro.id })
+        .post(`/logs/${used.id}/apply`, { kind: 'npc', id: ogro.id })
         .expect(400);
 
-      // desfazer a aplicação tira a máscara e devolve o pendente
+      // desfazer a aplicação tira a condição e devolve o pendente
       await master.post(`/logs/${applied.log.id}/revert`).expect(200);
       expect((await npcOf(id, 'Ogro'))!.conditions).toEqual([]);
-      expect((await logById(id, used.log.id)).pendingEffect).not.toBeNull();
+      expect((await logById(id, used.id)).pendingEffect).not.toBeNull();
 
       // agora em alguém da party
       await master
-        .post(`/logs/${used.log.id}/apply`, {
-          kind: 'character',
-          id: morgana.id,
-        })
+        .post(`/logs/${used.id}/apply`, { kind: 'character', id: morgana.id })
         .expect(200);
       expect(
         (await charOf(id, morgana.id)).conditions.map((c) => c.name),
-      ).toEqual(['Máscara da Serenidade']);
+      ).toEqual(['Congelado no tempo']);
     });
 
     it('mestre pode descartar o efeito pendente', async () => {
-      const { id, veu } = await activeCampaign();
-      const vazia = await ability(t, 'mascareiro', 'Máscara Vazia');
-      const used = (
-        await joana
-          .post(`/characters/${veu.id}/abilities/${vazia}/use`, {
-            rollMode: 'none',
-          })
-          .expect(200)
-      ).body as { log: Log };
-      await joana.del(`/logs/${used.log.id}/pending`).expect(403);
-      await master.del(`/logs/${used.log.id}/pending`).expect(200);
-      expect((await logById(id, used.log.id)).pendingEffect).toBeNull();
-      await master.del(`/logs/${used.log.id}/pending`).expect(400);
+      const { id, used } = await pendingFreeze();
+      await joana.del(`/logs/${used.id}/pending`).expect(403);
+      await master.del(`/logs/${used.id}/pending`).expect(200);
+      expect((await logById(id, used.id)).pendingEffect).toBeNull();
+      await master.del(`/logs/${used.id}/pending`).expect(400);
     });
 
-    it('crítico com condição vira pendente e, aplicado, tira a vez do alvo', async () => {
-      const { id, morgana } = await activeCampaign();
-      // Dilatação 20 → congelado no tempo (o jogador do Tecelão é a Joana)
-      const tecelao = await t.prisma.character.update({
-        where: { campaignId_userId: { campaignId: id, userId: joanaId } },
-        data: { classId: 'tecelao-do-tempo' },
-      });
-      const dilatacao = await ability(t, 'tecelao-do-tempo', 'Dilatação');
-      const used = (
-        await joana
-          .post(`/characters/${tecelao.id}/abilities/${dilatacao}/use`, {
-            rollMode: 'manual',
-            roll: 20,
-          })
-          .expect(200)
-      ).body as { log: Log };
-      expect(used.log.message).toContain('tempo congela brevemente');
-      expect(used.log.message).toContain(
-        'aguardando o mestre aplicar Congelado no tempo',
-      );
-
+    it('crítico com condição, aplicado, tira a vez do alvo; sem crítico nada fica pendente', async () => {
+      const { id, morgana, tecelao, dilatacao, used } = await pendingFreeze();
       await master
-        .post(`/logs/${used.log.id}/apply`, {
-          kind: 'character',
-          id: morgana.id,
-        })
+        .post(`/logs/${used.id}/apply`, { kind: 'character', id: morgana.id })
         .expect(200);
       await master.post(`/campaigns/${id}/combat/start`).expect(200);
       await next(master, id).expect(200);
@@ -1118,12 +1474,14 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       );
 
       // sem crítico na faixa: nada pendente
-      const plain = (
+      const declared = (
         await joana
-          .post(`/characters/${tecelao.id}/abilities/${dilatacao}/use`, {
-            rollMode: 'manual',
-            roll: 5,
-          })
+          .post(`/characters/${tecelao.id}/abilities/${dilatacao}/use`)
+          .expect(200)
+      ).body as { log: Log };
+      const plain = (
+        await master
+          .post(`/logs/${declared.log.id}/resolve`, { roll: 5 })
           .expect(200)
       ).body as { log: Log };
       expect(plain.log.pendingEffect).toBeNull();
@@ -1234,10 +1592,52 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       expect(patch.characters!.upsert).toHaveLength(1);
       expect(patch.characters!.upsert[0]).toMatchObject({
         id: morgana.id,
-        hp: 15,
+        hp: 25,
       });
       expect((await gotLog).message).toContain('Morgana recebeu 5 de dano');
       expect(leaked).toEqual([]);
+    });
+
+    it('a sala dos jogadores não recebe a vida do inimigo nem o texto do mestre', async () => {
+      const { id } = await activeCampaign();
+      await master
+        .post(`/campaigns/${id}/npcs`, { name: 'Goblin', hpMax: 8 })
+        .expect(201);
+      const goblin = (await state(master, id)).npcs[0];
+
+      const masterSocket = await connect(master.token);
+      const joanaSocket = await connect(joana.token);
+      expect(await join(masterSocket, id)).toEqual({ ok: true });
+      expect(await join(joanaSocket, id)).toEqual({ ok: true });
+
+      type NpcPatch = { npcs?: { upsert: Record<string, unknown>[] } };
+      const patchFor = (s: Socket) =>
+        new Promise<NpcPatch>((r) => s.once('campaign:patch', r));
+      const logFor = (s: Socket) =>
+        new Promise<Log>((r) => s.once('log:new', r));
+      const [masterPatch, joanaPatch] = [
+        patchFor(masterSocket),
+        patchFor(joanaSocket),
+      ];
+      const [masterLog, joanaLog] = [logFor(masterSocket), logFor(joanaSocket)];
+
+      await master.post(`/npcs/${goblin.id}/adjust`, { hp: -3 }).expect(200);
+
+      expect((await masterPatch).npcs!.upsert[0]).toMatchObject({
+        id: goblin.id,
+        hp: 5,
+        hpMax: 8,
+        band: 'WOUNDED',
+      });
+      const seen = (await joanaPatch).npcs!.upsert[0];
+      expect(seen).toMatchObject({ id: goblin.id, band: 'WOUNDED' });
+      for (const secret of ['hp', 'hpMax', 'notes']) {
+        expect(seen).not.toHaveProperty(secret);
+      }
+      expect((await masterLog).message).toBe(
+        'Goblin recebeu 3 de dano (vida 5/8)',
+      );
+      expect((await joanaLog).message).toBe('Goblin foi atingido — ferido');
     });
 
     it('jogadores são avisados quando um lobby abre', async () => {

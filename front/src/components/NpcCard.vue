@@ -1,22 +1,45 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import ConditionChip from '@/components/ConditionChip.vue'
 import StatBar from '@/components/StatBar.vue'
-import type { Npc } from '@/types/api'
+import { HEALTH_BANDS, type Npc } from '@/types/api'
 
-/** Inimigo/NPC na mesa: vida e condições. Ações (só mestre) vêm pelo slot. */
-withDefaults(defineProps<{ npc: Npc; canRemoveConditions?: boolean }>(), { canRemoveConditions: false })
+/**
+ * Inimigo/NPC na mesa. O mestre vê a barra de vida; o jogador só a faixa de
+ * saúde (o servidor nem manda o número). Ações (só mestre) vêm pelo slot.
+ */
+const props = withDefaults(defineProps<{ npc: Npc; canRemoveConditions?: boolean }>(), {
+  canRemoveConditions: false,
+})
 const emit = defineEmits<{ removeCondition: [id: string] }>()
+
+const down = computed(() => props.npc.band === 'DOWN')
+const band = computed(() => HEALTH_BANDS[props.npc.band])
 </script>
 
 <template>
-  <v-card class="npc-card card-frame" :class="{ down: npc.hp === 0 }" color="surface">
+  <v-card class="npc-card card-frame" :class="{ down }" color="surface">
     <div class="head">
       <v-icon icon="mdi-account-alert" color="error" />
       <div class="title-font name">{{ npc.name }}</div>
-      <v-chip v-if="npc.hp === 0" color="error" size="small" variant="flat" prepend-icon="mdi-skull">Caído</v-chip>
+      <v-chip v-if="down" color="error" size="small" variant="flat" prepend-icon="mdi-skull">Caído</v-chip>
     </div>
 
-    <StatBar label="Vida" icon="mdi-heart" :value="npc.hp" :max="npc.hpMax" color="error" size="sm" class="mt-2" />
+    <StatBar
+      v-if="npc.hp !== undefined && npc.hpMax !== undefined"
+      label="Vida"
+      icon="mdi-heart"
+      :value="npc.hp"
+      :max="npc.hpMax"
+      color="error"
+      size="sm"
+      class="mt-2"
+    />
+    <v-chip v-else-if="!down" :color="band.color" size="small" variant="tonal" prepend-icon="mdi-heart-pulse" class="mt-2">
+      {{ band.label }}
+    </v-chip>
+
+    <div v-if="npc.notes" class="notes">{{ npc.notes }}</div>
 
     <div v-if="npc.conditions.length" class="chips">
       <ConditionChip
@@ -58,6 +81,14 @@ const emit = defineEmits<{ removeCondition: [id: string] }>()
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.notes {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  font-style: italic;
+  opacity: 0.7;
+  white-space: pre-line;
 }
 
 .chips {

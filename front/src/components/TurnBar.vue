@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { api } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
 import type { ActionResult } from '@/types/api'
@@ -9,10 +9,23 @@ const campaign = useCampaignStore()
 const combat = computed(() => campaign.combat)
 const busy = ref(false)
 
+// pulsa por uns segundos quando o foco chega ao jogador (no iPhone não há vibração)
+const pulse = ref(false)
+let pulseTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  () => campaign.isMyTurn,
+  (mine, before) => {
+    if (!mine || before) return
+    pulse.value = true
+    clearTimeout(pulseTimer)
+    pulseTimer = setTimeout(() => (pulse.value = false), 6000)
+  },
+)
+
 const whose = computed(() => {
   if (!combat.value) return ''
-  if (campaign.isMyTurn) return 'Sua vez!'
-  return combat.value.turnIndex === 0 ? 'Vez do Mestre' : `Vez de ${campaign.currentTurnCharacter?.name ?? '…'}`
+  if (campaign.isMyTurn) return 'O foco está em você'
+  return combat.value.turnIndex === 0 ? 'O mundo reage' : `O foco está em ${campaign.currentTurnCharacter?.name ?? '…'}`
 })
 
 async function endTurn() {
@@ -30,14 +43,14 @@ async function endTurn() {
 </script>
 
 <template>
-  <div v-if="combat" class="turn-bar card-frame" :class="{ mine: campaign.isMyTurn }" role="status">
+  <div v-if="combat" class="turn-bar card-frame" :class="{ mine: campaign.isMyTurn, pulse }" role="status">
     <v-icon :icon="campaign.isMyTurn ? 'mdi-sword' : 'mdi-timer-sand'" />
     <div class="text">
       <div class="whose title-font">{{ whose }}</div>
-      <div class="round">Combate · rodada {{ combat.round }}</div>
+      <div class="round">Rodada {{ combat.round }}</div>
     </div>
     <v-btn v-if="campaign.isMyTurn" color="primary" variant="flat" :loading="busy" prepend-icon="mdi-skip-next" @click="endTurn">
-      Encerrar turno
+      Passar a vez
     </v-btn>
   </div>
 </template>
@@ -57,6 +70,30 @@ async function endTurn() {
   box-shadow:
     0 0 0 1px var(--gold),
     0 0 18px color-mix(in srgb, var(--gold) 40%, transparent);
+}
+
+.turn-bar.pulse {
+  animation: turn-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes turn-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.025);
+  }
+}
+
+:global(html.lite) .turn-bar.pulse {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turn-bar.pulse {
+    animation: none;
+  }
 }
 
 .text {

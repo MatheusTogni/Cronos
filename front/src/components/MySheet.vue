@@ -7,6 +7,7 @@ import { api } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
 import { useNotifyStore } from '@/stores/notify'
 import type { Ability, ActionResult, Character, CharacterClass } from '@/types/api'
+import { frenzyActive, INSTABILITY_CLASS, INSTABILITY_LIMIT, instabilityCritical } from '@/utils/classHooks'
 
 /** Ficha do próprio jogador durante a aventura. */
 const props = defineProps<{ character: Character; cls: CharacterClass }>()
@@ -25,8 +26,13 @@ function use(a: Ability) {
   abilityOpen.value = true
 }
 function onUsed(log: ActionResult['log']) {
-  if (log) notify.success(log.message)
+  if (!log) return
+  notify.success(log.pendingAction ? `${log.message} O mestre resolve.` : log.message)
 }
+
+const frenzy = computed(() => frenzyActive(props.character))
+const isTecelao = computed(() => props.character.classId === INSTABILITY_CLASS)
+const waiting = computed(() => campaign.myPendingAction?.pendingAction ?? null)
 
 // Invocações, condições e inventário são controlados pelo mestre: aqui só se vê.
 
@@ -51,7 +57,7 @@ async function saveNotes() {
 </script>
 
 <template>
-  <div class="sheet" :style="{ '--accent': cls.color }">
+  <div class="sheet" :class="{ frenzy }" :style="{ '--accent': cls.color }">
     <!-- cabeçalho -->
     <div class="hero">
       <v-avatar size="64" rounded="lg">
@@ -68,9 +74,24 @@ async function saveNotes() {
     <div class="bars">
       <StatBar label="Vida" icon="mdi-heart" :value="character.hp" :max="character.hpMax" color="error" size="lg" />
       <StatBar label="Mana" icon="mdi-water" :value="character.mana" :max="character.manaMax" color="info" size="lg" />
+      <StatBar
+        v-if="isTecelao"
+        label="Instabilidade temporal"
+        icon="mdi-timer-sand"
+        :value="character.instability"
+        :max="INSTABILITY_LIMIT"
+        :color="instabilityCritical(character) ? 'error' : 'secondary'"
+        size="md"
+      />
     </div>
+    <p v-if="isTecelao && instabilityCritical(character)" class="warn">
+      O tempo está por um fio: mais um uso e vem o paradoxo.
+    </p>
+    <p v-if="frenzy" class="frenzy-note">
+      <v-icon icon="mdi-flash" size="small" /> Frenesi: ferido, você fica mais perigoso e ignora parte da dor.
+    </p>
     <v-alert v-if="character.hp === 0" type="error" variant="tonal" density="compact" class="mt-3">
-      {{ character.name }} caiu! Fale com o mestre.
+      {{ character.name }} está caído e não pode agir até ser curado.
     </v-alert>
 
     <!-- condições -->
@@ -84,8 +105,16 @@ async function saveNotes() {
     <!-- habilidades -->
     <section class="block">
       <h3>Habilidades</h3>
-      <p v-if="!campaign.canAct" class="wait">
+      <p v-if="character.hp === 0" class="wait">
+        <v-icon icon="mdi-skull" size="small" /> Caído: ninguém age até ser curado.
+      </p>
+      <p v-else-if="!campaign.canAct" class="wait">
         <v-icon icon="mdi-timer-sand" size="small" /> Aguarde a sua vez para usar habilidades.
+      </p>
+      <p v-if="waiting" class="wait">
+        <v-icon icon="mdi-dice-d20" size="small" />
+        Aguardando o mestre: {{ waiting.abilityName }}<template v-if="waiting.target">
+          em {{ waiting.target.kind === 'self' ? 'si mesmo' : waiting.target.name }}</template>.
       </p>
       <div class="abilities">
         <button
@@ -351,9 +380,48 @@ h3 {
   min-height: 28px;
 }
 
+.warn {
+  margin: 8px 0 0;
+  font-size: 0.9rem;
+  color: rgb(var(--v-theme-error));
+}
+
+.frenzy-note {
+  margin: 8px 0 0;
+  font-size: 0.9rem;
+  color: #e0634f;
+}
+
+/* Frenesi: a ficha ferida pulsa em vermelho */
+.sheet.frenzy .hero {
+  border-radius: 12px;
+  animation: frenzy-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes frenzy-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px rgba(208, 74, 58, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(208, 74, 58, 0.8),
+      0 0 20px rgba(208, 74, 58, 0.45);
+  }
+}
+
+:global(html.lite) .sheet.frenzy .hero {
+  animation: none;
+  box-shadow: 0 0 0 1px rgba(208, 74, 58, 0.7);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ability {
     transition: none;
+  }
+
+  .sheet.frenzy .hero {
+    animation: none;
   }
 }
 </style>

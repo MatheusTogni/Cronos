@@ -63,8 +63,8 @@ function move(index: number, dir: -1 | 1) {
       <ol class="order">
         <li :class="{ current: combat.turnIndex === 0 }">
           <v-icon icon="mdi-crown" size="small" />
-          <span class="who">Mestre</span>
-          <span class="sub">inimigos e NPCs</span>
+          <span class="who">O mundo</span>
+          <span class="sub">inimigos e acontecimentos</span>
         </li>
         <li v-for="(c, i) in order" :key="c.id" :class="{ current: combat.currentCharacterId === c.id, down: c.hp === 0 }">
           <span class="pos">{{ i + 1 }}</span>
@@ -96,7 +96,7 @@ function move(index: number, dir: -1 | 1) {
       </ol>
 
       <v-btn block color="primary" variant="flat" prepend-icon="mdi-skip-next" :loading="busy" class="mb-2" @click="next">
-        {{ combat.turnIndex === 0 ? 'Encerrar turno do mestre' : `Encerrar turno de ${campaign.currentTurnCharacter?.name ?? '…'}` }}
+        {{ combat.turnIndex === 0 ? 'Passar a vez do mundo' : `Passar a vez de ${campaign.currentTurnCharacter?.name ?? '…'}` }}
       </v-btn>
       <v-btn block variant="text" size="small" prepend-icon="mdi-flag-checkered" :disabled="busy" @click="end">
         Encerrar combate

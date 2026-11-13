@@ -2,6 +2,7 @@
 import ConditionChip from '@/components/ConditionChip.vue'
 import StatBar from '@/components/StatBar.vue'
 import type { Character, CharacterClass } from '@/types/api'
+import { frenzyActive, INSTABILITY_CLASS, INSTABILITY_LIMIT, instabilityCritical } from '@/utils/classHooks'
 
 /** Resumo de um personagem para a visão da party (mestre e jogadores). */
 withDefaults(
@@ -37,6 +38,7 @@ const emit = defineEmits<{ removeCondition: [id: string] }>()
         </div>
       </div>
       <v-chip v-if="highlight" color="secondary" size="small" variant="flat" prepend-icon="mdi-sword">Vez</v-chip>
+      <v-chip v-if="frenzyActive(character)" color="error" size="small" variant="tonal" prepend-icon="mdi-flash">Frenesi</v-chip>
       <v-chip v-if="character.hp === 0" color="error" size="small" variant="flat" prepend-icon="mdi-skull">
         Caído
       </v-chip>
@@ -45,6 +47,15 @@ const emit = defineEmits<{ removeCondition: [id: string] }>()
     <div class="bars">
       <StatBar label="Vida" icon="mdi-heart" :value="character.hp" :max="character.hpMax" color="error" />
       <StatBar label="Mana" icon="mdi-water" :value="character.mana" :max="character.manaMax" color="info" />
+      <StatBar
+        v-if="character.classId === INSTABILITY_CLASS"
+        label="Instabilidade"
+        icon="mdi-timer-sand"
+        :value="character.instability"
+        :max="INSTABILITY_LIMIT"
+        :color="instabilityCritical(character) ? 'error' : 'secondary'"
+        size="sm"
+      />
     </div>
 
     <div v-if="character.conditions.length" class="chips">

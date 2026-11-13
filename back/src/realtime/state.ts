@@ -1,5 +1,10 @@
-import { Prisma } from '@prisma/client';
+import { Condition, Prisma } from '@prisma/client';
+import { HealthBand, healthBand } from '../game/health';
 import { uploadUrl } from '../images/upload-dir';
+
+/** Quem está vendo: o mestre da campanha ou os jogadores. */
+export const AUDIENCES = ['master', 'players'] as const;
+export type Audience = (typeof AUDIENCES)[number];
 
 /** Tudo o que a ficha mostra de um personagem. */
 export const characterInclude = {
@@ -15,19 +20,25 @@ export const logSelect = {
   id: true,
   type: true,
   message: true,
+  masterMessage: true,
   roll: true,
   characterId: true,
   createdAt: true,
   revertedAt: true,
   delta: true,
   pendingEffect: true,
+  pendingAction: true,
   actor: { select: { id: true, displayName: true } },
 } satisfies Prisma.LogEntrySelect;
 
+/** Entrada do log como o servidor a guarda: com as duas mensagens. */
 export type LogDto = Omit<
   Prisma.LogEntryGetPayload<{ select: typeof logSelect }>,
   'delta'
 > & { revertible: boolean };
+
+/** Entrada do log como sai para o front: uma só `message`, a de quem lê. */
+export type LogView = Omit<LogDto, 'masterMessage'>;
 
 export const toLogDto = (
   entry: Prisma.LogEntryGetPayload<{ select: typeof logSelect }>,
@@ -36,7 +47,39 @@ export const toLogDto = (
   return { ...rest, revertible: !!delta && !entry.revertedAt };
 };
 
-/** Monta o estado público da campanha (igual para mestre e jogadores). */
+/**
+ * Escolhe a mensagem de quem vai ler: o mestre vê a completa, os jogadores a
+ * narrada. O d20 de uma habilidade é do mestre (vira o dano); a rolagem de
+ * dados avulsa (DICE_ROLL) continua pública.
+ */
+export function logView(log: LogDto, audience: Audience): LogView {
+  const { masterMessage, ...rest } = log;
+  if (audience === 'master') {
+    return { ...rest, message: masterMessage ?? log.message };
+  }
+  return {
+    ...rest,
+    message: log.message,
+    roll: log.type === 'ABILITY_USED' ? null : log.roll,
+  };
+}
+
+/**
+ * Inimigo como o front recebe. Todos veem nome, faixa de saúde e condições;
+ * a vida (números) e as anotações só o mestre recebe.
+ */
+export interface NpcView {
+  id: string;
+  campaignId: string;
+  name: string;
+  band: HealthBand;
+  conditions: Condition[];
+  hp?: number;
+  hpMax?: number;
+  notes?: string;
+}
+
+/** Monta o estado completo da campanha, como o mestre vê. */
 export async function buildCampaignState(
   db: Prisma.TransactionClient,
   campaignId: string,
@@ -90,7 +133,16 @@ export async function buildCampaignState(
       joinedAt: p.joinedAt,
     })),
     characters: c.characters,
-    npcs: c.npcs,
+    npcs: c.npcs.map((n): NpcView => ({
+      id: n.id,
+      campaignId: n.campaignId,
+      name: n.name,
+      band: healthBand(n.hp, n.hpMax),
+      conditions: n.conditions,
+      hp: n.hp,
+      hpMax: n.hpMax,
+      notes: n.notes,
+    })),
     shownImage: c.shownImage
       ? {
           id: c.shownImage.id,
@@ -102,6 +154,22 @@ export async function buildCampaignState(
 }
 
 export type CampaignState = Awaited<ReturnType<typeof buildCampaignState>>;
+
+/** O mesmo estado sem o que é só do mestre (vida e anotações dos inimigos). */
+export function forPlayers(state: CampaignState): CampaignState {
+  return {
+    ...state,
+    npcs: state.npcs.map(
+      ({ id, campaignId, name, band, conditions }): NpcView => ({
+        id,
+        campaignId,
+        name,
+        band,
+        conditions,
+      }),
+    ),
+  };
+}
 
 // ───────────── envio por partes ─────────────
 

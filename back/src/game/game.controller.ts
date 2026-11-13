@@ -28,6 +28,7 @@ import {
   UpdateNpcDto,
   UpdateSummonDto,
   UseAbilityDto,
+  ResolveActionDto,
 } from './dto';
 import { CombatService } from './combat.service';
 import { GameService } from './game.service';
@@ -262,6 +263,24 @@ export class GameController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.combat.setOrder(id, dto, user);
+  }
+
+  // ── ação declarada (o mestre digita o d20 ou nega) ──
+
+  @Post('logs/:id/resolve')
+  @HttpCode(200)
+  resolveAction(
+    @Param('id', Id()) id: string,
+    @Body() dto: ResolveActionDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.game.resolveAction(id, dto, user);
+  }
+
+  @Post('logs/:id/deny')
+  @HttpCode(200)
+  denyAction(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
+    return this.game.denyAction(id, user);
   }
 
   // ── efeito pendente ("Aplicar em…") ──

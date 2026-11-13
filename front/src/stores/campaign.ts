@@ -41,12 +41,22 @@ export const useCampaignStore = defineStore('campaign', () => {
   const currentTurnCharacter = computed(() =>
     combat.value?.currentCharacterId ? characterById(combat.value.currentCharacterId) : null,
   )
-  /** Fora de combate todos agem; em combate, só quem está com a vez (o mestre sempre). */
+  /** Quem está com 0 de vida (Caído) não age. */
+  const fallen = computed(() => !isMaster.value && !!myCharacter.value && myCharacter.value.hp === 0)
+  /** Fora de combate todos agem; em combate, só quem está com a vez (o mestre sempre). Caído não age. */
   const canAct = computed(
-    () => !combat.value || isMaster.value || (!!myCharacter.value && currentTurnCharacter.value?.id === myCharacter.value.id),
+    () =>
+      !fallen.value &&
+      (!combat.value || isMaster.value || (!!myCharacter.value && currentTurnCharacter.value?.id === myCharacter.value.id)),
   )
   const isMyTurn = computed(
     () => !!combat.value && !!myCharacter.value && currentTurnCharacter.value?.id === myCharacter.value.id,
+  )
+
+  /** Ações declaradas pelos jogadores que esperam o mestre (d20, dano ou confirmação). */
+  const pendingActions = computed(() => logs.value.filter((l) => l.pendingAction && !l.revertedAt))
+  const myPendingAction = computed(
+    () => pendingActions.value.find((l) => l.pendingAction!.characterId === myCharacter.value?.id) ?? null,
   )
 
   const characterById = (id: string | null | undefined) =>
@@ -202,7 +212,10 @@ export const useCampaignStore = defineStore('campaign', () => {
     combat,
     currentTurnCharacter,
     canAct,
+    fallen,
     isMyTurn,
+    pendingActions,
+    myPendingAction,
     open,
     close,
     refresh,

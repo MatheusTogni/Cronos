@@ -1,4 +1,4 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { ConditionPolarity } from '@prisma/client';
 import {
   ArrayMaxSize,
@@ -15,36 +15,55 @@ import {
   MaxLength,
   Min,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
 
-export const ROLL_MODES = ['auto', 'manual', 'none'] as const;
-export type RollMode = (typeof ROLL_MODES)[number];
+export const ACTION_TARGET_KINDS = ['self', 'character', 'npc'] as const;
 
+/** Em quem o jogador usa a habilidade: ele mesmo, alguém da party ou um inimigo em cena. */
+export class ActionTargetDto {
+  @IsIn(ACTION_TARGET_KINDS)
+  kind!: (typeof ACTION_TARGET_KINDS)[number];
+
+  @ValidateIf((o: ActionTargetDto) => o.kind !== 'self')
+  @IsUUID()
+  id?: string;
+}
+
+/**
+ * O jogador só declara: habilidade + alvo. O d20 e o dano são do mestre, que
+ * digita o valor ao resolver a ação (ver ResolveActionDto).
+ */
 export class UseAbilityDto {
-  /** auto = o sistema rola o d20; manual = o jogador digita o dado físico; none = sem dado. */
-  @IsIn(ROLL_MODES)
-  rollMode!: RollMode;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ActionTargetDto)
+  target?: ActionTargetDto;
 
-  @ValidateIf((o: UseAbilityDto) => o.rollMode === 'manual')
+  /** Resposta à pergunta da habilidade (ex.: o que o Apostador aposta). */
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(120)
+  note?: string;
+
+  /** Qual invocação sacrificar, se houver mais de uma. */
+  @IsOptional()
+  @IsUUID()
+  summonId?: string;
+}
+
+/** O mestre resolve uma ação declarada. */
+export class ResolveActionDto {
+  /** O d20 da mesa: vira o dano (se a habilidade causa dano) e vale para o crítico. */
+  @IsOptional()
   @IsInt({ message: 'Informe o valor do d20' })
   @Min(1, { message: 'O d20 vai de 1 a 20' })
   @Max(20, { message: 'O d20 vai de 1 a 20' })
   roll?: number;
-
-  /** Alvo em texto livre (ex.: "o guarda da ponte"). */
-  @IsOptional()
-  @Transform(trim)
-  @IsString()
-  @MaxLength(80)
-  target?: string;
-
-  /** Alvo que é alguém da party (aplica condições automaticamente). */
-  @IsOptional()
-  @IsUUID()
-  targetCharacterId?: string;
 
   /** Nome da criatura invocada (Reanimar). */
   @IsOptional()
@@ -52,11 +71,6 @@ export class UseAbilityDto {
   @IsString()
   @MaxLength(60)
   summonName?: string;
-
-  /** Qual invocação sacrificar, se houver mais de uma. */
-  @IsOptional()
-  @IsUUID()
-  summonId?: string;
 }
 
 export class AdjustDto {
@@ -261,6 +275,9 @@ export class CreateNpcDto {
   name!: string;
 
   @IsInt() @Min(1) @Max(9999) hpMax!: number;
+
+  /** Quantos criar de uma vez: com mais de um, o nome ganha número (Goblin 1, Goblin 2…). */
+  @IsOptional() @IsInt() @Min(1) @Max(20) quantity?: number;
 }
 
 export class UpdateNpcDto {

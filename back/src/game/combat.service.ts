@@ -16,7 +16,7 @@ import { RealtimeService } from '../realtime/realtime.service';
 import { LogDto } from '../realtime/state';
 import { endTurnOf, endTurnOfNpcs, joinPt } from './conditions';
 import { NextTurnDto, TurnOrderDto } from './dto';
-import { DeltaBuilder, TurnPos, writeLog } from './journal';
+import { DeltaBuilder, Line, same, TurnPos, writeLog } from './journal';
 
 type Tx = Prisma.TransactionClient;
 
@@ -57,7 +57,7 @@ export class CombatService {
         campaignId,
         actorUserId: user.id,
         type: LogType.TURN,
-        message: 'Combate! Rodada 1 — vez do Mestre.',
+        message: 'O combate começa. Rodada 1 — o mundo reage.',
       });
     });
   }
@@ -76,7 +76,7 @@ export class CombatService {
         campaignId,
         actorUserId: user.id,
         type: LogType.TURN,
-        message: `Fim do combate (${campaign.round} ${campaign.round === 1 ? 'rodada' : 'rodadas'}).`,
+        message: `O combate termina (${campaign.round} ${campaign.round === 1 ? 'rodada' : 'rodadas'}).`,
       });
     });
   }
@@ -119,7 +119,7 @@ export class CombatService {
         campaignId,
         actorUserId: user.id,
         type: LogType.TURN,
-        message: `Nova ordem dos turnos: Mestre, ${ids.map(nameOf).join(', ')}.`,
+        message: `Nova ordem da cena: o mundo, ${ids.map(nameOf).join(', ')}.`,
       });
     });
   }
@@ -157,7 +157,7 @@ export class CombatService {
 
     return this.run(campaignId, async (tx) => {
       const delta = new DeltaBuilder();
-      const parts: string[] = [];
+      const parts: Line[] = [];
       const order = campaign.turnOrder;
       const load = (id: string) =>
         tx.character.findFirst({
@@ -168,11 +168,11 @@ export class CombatService {
       if (currentId) {
         const ch = await load(currentId);
         if (ch) {
-          parts.push(`Fim do turno de ${ch.name}`);
+          parts.push(same(`${ch.name} passa a vez`));
           parts.push(...(await endTurnOf(tx, ch, delta)));
         }
       } else {
-        parts.push('Fim do turno do Mestre');
+        parts.push(same('O mundo termina de reagir'));
         // inimigos agem no turno do mestre: as condições deles descontam aqui
         parts.push(...(await endTurnOfNpcs(tx, campaignId, delta)));
       }
@@ -182,7 +182,7 @@ export class CombatService {
         turnIndex: campaign.turnIndex,
       };
       let { round, turnIndex } = from;
-      let nextName = 'do Mestre';
+      let nextName: string | null = null; // null = o mundo reage
       // termina: no pior caso todos perdem a vez e a rodada volta ao mestre
       for (;;) {
         turnIndex++;
@@ -194,12 +194,18 @@ export class CombatService {
         const ch = await load(order[turnIndex - 1]);
         if (!ch) continue; // saiu da campanha
         const blocker = ch.conditions.find((c) => c.skipsTurn);
-        if (blocker) {
-          parts.push(`${ch.name} perde a vez (${blocker.name})`);
+        if (blocker || ch.hp === 0) {
+          parts.push(
+            same(
+              blocker
+                ? `${ch.name} perde a vez (${blocker.name})`
+                : `${ch.name} está caído e perde a vez`,
+            ),
+          );
           parts.push(...(await endTurnOf(tx, ch, delta)));
           continue;
         }
-        nextName = `de ${ch.name}`;
+        nextName = ch.name;
         break;
       }
 
@@ -213,17 +219,22 @@ export class CombatService {
       delta.turn(campaignId, from, to);
 
       const head =
-        round !== from.round
-          ? `Rodada ${round} — vez ${nextName}`
-          : `Vez ${nextName}`;
+        nextName === null
+          ? `Rodada ${round} — o mundo reage`
+          : `O foco passa a ${nextName}`;
+      // jogadores leem a versão sem a vida dos inimigos; o mestre, a completa
+      const compose = (pick: (l: Line) => string) => {
+        const texts = parts.map(pick);
+        return texts.length > 1
+          ? `${texts[0]}: ${joinPt(texts.slice(1))}. ${head}.`
+          : `${texts[0]}. ${head}.`;
+      };
       return writeLog(tx, {
         campaignId,
         actorUserId: user.id,
         type: LogType.TURN,
-        message:
-          parts.length > 1
-            ? `${parts[0]}: ${joinPt(parts.slice(1))}. ${head}.`
-            : `${parts[0]}. ${head}.`,
+        message: compose((l) => l.public),
+        masterMessage: compose((l) => l.master),
         delta,
       });
     });

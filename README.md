@@ -22,14 +22,18 @@ Controle de fichas para a mesa. O mestre cadastra os logins, abre o lobby da cam
 3. Cada jogador escolhe a classe, dá nome ao personagem e aperta **Estou pronto**. Trocar de classe cancela o pronto.
 4. Quando todos estão prontos, o mestre aperta **Começar aventura**.
 
-**Durante a aventura.**
-- **Jogador:** a ficha mostra vida, mana, habilidades, invocações, condições, inventário e anotações. Ao usar uma habilidade, ele escolhe o dado (o sistema rola, ele digita o dado físico ou sem dado) e o alvo. O sistema desconta a mana, mostra o crítico (18/19/20) e aplica o efeito:
-  - **Reanimar** cria a criatura. O Necromante mantém só uma; a nova substitui a antiga.
-  - **Sacrifício Macabro** consome a criatura.
-  - **Máscaras** viram condição no alvo, uma por alvo; a nova substitui a anterior.
-  - **Lua Rubra** e **Caçada Escarlate** viram condição em quem usou.
-  - **Dívida** e **Olhar Distante** marcam o alvo.
-- **Mestre:** vê a party com ações rápidas (Dano, Cura, Mana, XP/Nível, Condição, Item, Criatura, Editar ficha). Também narra no log, rola dados, envia imagens e escolhe qual mostrar na tela dos jogadores.
+**Durante a aventura.** A mesa é física: os dados são físicos e a conversa é o jogo. O app só apoia.
+- **Jogador:** a ficha mostra vida, mana, habilidades, invocações, condições, inventário e anotações. Ao usar uma habilidade ele só **declara**: escolhe a habilidade e o alvo (um aliado, ele mesmo ou um inimigo em cena). A mana é cobrada na hora. Depois rola o d20 na mesa.
+- **Mestre:** o valor do d20 é digitado só por ele, numa fila "Aguardando você". O número vira o dano (nos ataques) e vale para o crítico (18/19/20). Ele resolve a ação ou nega (a mana volta). Também tem as ações rápidas (Dano, Cura, Mana, XP/Nível, Condição, Item, Criatura, Editar ficha), narra no log, rola dados, envia imagens e escolhe qual mostrar na tela dos jogadores.
+- **Três tipos de habilidade** (ver `COMBATE.md`):
+  - **Ataque** (`dealsDamage`): o d20 é o dano no inimigo. Os 7 ataques são as básicas de ataque, *Execução* e *Passo Predatório*.
+  - **Efeito** (`effect`): condição, invocação ou marca. Em aliado ou em si acontece na hora; em inimigo o mestre confirma.
+  - **Narrativa**: só vai para o log; o resto é a mesa. Quem tem faixa de crítico também passa pelo mestre.
+- **Inimigos:** o jogador vê o nome, as condições e uma **faixa de saúde** (Intacto, Ferido, Muito ferido, Por um fio, Caído). A vida, o d20 e o dano são só do mestre. O servidor nem manda esses números aos jogadores, e o log tem duas versões: a do mestre, com números, e a narrada.
+- **Vida e nível:** todas as classes começam com 30 de vida e ganham +2 de vida máxima por nível. O efeito de subir de nível aparece na tela do jogador. Com 0 de vida o personagem fica **Caído**: não age e perde a vez no combate até ser curado.
+- **Mana:** não regenera sozinha; volta com poção (por enquanto o mestre devolve pelo botão Mana).
+- **Combate:** o mestre abre cada rodada ("o mundo reage") e a ordem dos personagens é uma trava: a vez só passa quando o jogador a passa (o mestre pode passar a de qualquer um). O celular vibra na vez do jogador e quando o mestre resolve a ação dele (não funciona no iPhone, onde o aviso é só visual).
+- **Ganchos de classe:** o sistema acende o *Frenesi* (Caçador com 40% de vida ou menos) e mostra a *instabilidade temporal* do Tecelão do Tempo, que sobe a cada uso e rompe em paradoxo no limite. A *Oportunidade* da Raposa Vermelha e a *Condenação* do Carrasco são narração do mestre: o app não calcula. O *Tudo ou Nada* do Apostador pergunta "O que você aposta?".
 - **Log:** tudo vai para o log da mesa. O mestre pode **desfazer** qualquer ação. O desfazer devolve só o que aquela ação mudou: desfazer um dano depois de uma cura não apaga a cura.
 
 ## Rodar em desenvolvimento (Windows ou Linux)
@@ -123,6 +127,7 @@ Os testes e2e do back sobem um **Postgres real embutido** (não precisa de banco
 
 Edite `back/prisma/seed/classes.json` e rode `npm run db:seed`.
 
-- **Vida e mana iniciais** (`baseHp`/`baseMana`) estão provisórios (20/10), porque as fichas não trazem esses números.
+- **Vida e mana iniciais** (`baseHp`/`baseMana`): vida 30 em todas as classes (mais 2 por nível, em `back/src/game/rules.ts`); a mana (10) é provisória, porque as fichas não trazem esse número.
+- **Tipo da habilidade:** `dealsDamage: true` marca um **Ataque** (o d20 do mestre vira o dano). `prompt` faz o jogador responder uma pergunta antes de usar (vai no log).
 - **Efeitos automáticos:** cada habilidade aceita `effect` (`SUMMON`, `SACRIFICE_SUMMON`, `SELF_CONDITION`, `TARGET_CONDITION`) com `effectData` (nome, descrição, `exclusiveGroup`, vida da criatura).
 - **Críticos:** cada habilidade aceita `crits` (`[{ "min": 18, "max": 20, "text": "..." }]`).

@@ -11,11 +11,19 @@ import { writeLog } from '../game/journal';
 import { uploadPath } from '../images/upload-dir';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
-import { buildCampaignState, logSelect, toLogDto } from '../realtime/state';
+import {
+  Audience,
+  buildCampaignState,
+  forPlayers,
+  logSelect,
+  logView,
+  toLogDto,
+} from '../realtime/state';
 import {
   assertCampaignMaster,
   assertCampaignMember,
   assertStatus,
+  isCampaignMaster,
   loadCampaign,
 } from './access';
 import {
@@ -86,8 +94,12 @@ export class CampaignsService {
   async getState(campaignId: string, user: AuthUser) {
     const campaign = await loadCampaign(this.prisma, campaignId);
     await assertCampaignMember(this.prisma, campaign, user);
+    // o mestre vê tudo; o jogador não recebe o que é só do mestre
+    const audience: Audience = isCampaignMaster(campaign, user)
+      ? 'master'
+      : 'players';
 
-    const [state, logs] = await Promise.all([
+    const [full, logs] = await Promise.all([
       buildCampaignState(this.prisma, campaignId),
       this.prisma.logEntry.findMany({
         where: { campaignId },
@@ -96,7 +108,11 @@ export class CampaignsService {
         select: logSelect,
       }),
     ]);
-    return { ...state, logs: logs.reverse().map(toLogDto) };
+    const state = audience === 'master' ? full : forPlayers(full);
+    return {
+      ...state,
+      logs: logs.reverse().map((e) => logView(toLogDto(e), audience)),
+    };
   }
 
   // ───────────────────────── mestre ─────────────────────────

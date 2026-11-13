@@ -5,6 +5,11 @@ import { useCampaignStore } from '@/stores/campaign'
 import { useConditionsStore } from '@/stores/conditions'
 import type { Ability, ActionResult, Character, Crit } from '@/types/api'
 
+/**
+ * O jogador declara a habilidade e o alvo. O d20 e o dano são do mestre: ele
+ * digita o valor na mesa dele e a ação se resolve. Habilidade sem dado, sem
+ * dano e sem inimigo como alvo acontece na hora.
+ */
 const props = defineProps<{ character: Character; ability: Ability | null }>()
 const open = defineModel<boolean>({ required: true })
 const emit = defineEmits<{ used: [log: ActionResult['log']] }>()
@@ -12,10 +17,8 @@ const emit = defineEmits<{ used: [log: ActionResult['log']] }>()
 const campaign = useCampaignStore()
 const catalog = useConditionsStore()
 
-type RollMode = 'auto' | 'manual' | 'none'
-const rollMode = ref<RollMode>('auto')
-const manualRoll = ref<number | null>(null)
-// O jogador só escolhe a habilidade (e o dado): alvo e efeitos em outros são com o mestre.
+const target = ref<string | null>(null) // 'self' | 'character:<id>' | 'npc:<id>'
+const note = ref('')
 const summonId = ref<string | null>(null)
 const busy = ref(false)
 const error = ref('')
@@ -23,6 +26,38 @@ const error = ref('')
 const hasCrits = computed(() => !!props.ability?.crits?.length)
 const effect = computed(() => props.ability?.effect ?? null)
 const enoughMana = computed(() => (props.ability?.manaCost ?? 0) <= props.character.mana)
+
+// habilidades de invocação ou de si mesmo não escolhem alvo
+const ownEffect = computed(
+  () => effect.value === 'SUMMON' || effect.value === 'SACRIFICE_SUMMON' || effect.value === 'SELF_CONDITION',
+)
+const takesTarget = computed(() => !!props.ability?.dealsDamage || !ownEffect.value)
+const needsTarget = computed(() => !!props.ability?.dealsDamage || effect.value === 'TARGET_CONDITION')
+const targetsEnemy = computed(() => !!target.value?.startsWith('npc:'))
+/** Espelho do back: dano, faixa de crítico ou efeito num inimigo passam pelo mestre. */
+const needsMaster = computed(
+  () => !!props.ability?.dealsDamage || hasCrits.value || (effect.value === 'TARGET_CONDITION' && targetsEnemy.value),
+)
+const waiting = computed(() => !!campaign.myPendingAction)
+
+type Item = { title: string; value: string } | { type: 'subheader'; title: string }
+const targetItems = computed<Item[]>(() => {
+  const s = campaign.state
+  if (!s || !props.ability) return []
+  const items: Item[] = []
+  if (!props.ability.dealsDamage) {
+    items.push({ type: 'subheader', title: 'Aliados' }, { title: 'Si mesmo', value: 'self' })
+    for (const c of s.characters) {
+      if (c.id !== props.character.id) items.push({ title: c.name, value: `character:${c.id}` })
+    }
+  }
+  const enemies = props.ability.dealsDamage ? s.npcs.filter((n) => n.band !== 'DOWN') : s.npcs
+  if (enemies.length) {
+    items.push({ type: 'subheader', title: 'Inimigos' })
+    for (const n of enemies) items.push({ title: n.name, value: `npc:${n.id}` })
+  }
+  return items
+})
 
 const summonOptions = computed(() =>
   props.character.summons.map((s) => ({ title: `${s.name} (${s.hp}/${s.hpMax})`, value: s.id })),
@@ -35,52 +70,54 @@ const critCondition = (c: Crit) => {
   const turns = c.turns ? `, ${c.turns} ${c.turns === 1 ? 'turno' : 'turnos'}` : ''
   return `${name}${turns}${c.on === 'self' ? ' (em você)' : ''}`
 }
-// algum efeito vai cair em outra pessoa: o mestre escolhe quem
-const targetsSomeone = computed(
-  () => effect.value === 'TARGET_CONDITION' || !!props.ability?.crits?.some((c) => c.condition && c.on !== 'self'),
-)
 
-const critLabel = (c: Crit) =>
-  c.min === c.max ? `${c.min}` : c.max === 20 ? `${c.min}+` : `${c.min}–${c.max}`
+const critLabel = (c: Crit) => (c.min === c.max ? `${c.min}` : c.max === 20 ? `${c.min}+` : `${c.min}–${c.max}`)
 
 watch(open, (isOpen) => {
   if (!isOpen) return
   catalog.load().catch(() => {
     /* sem catálogo, mostra o id da condição */
   })
-  rollMode.value = hasCrits.value ? 'auto' : 'none'
-  manualRoll.value = null
+  target.value = null
+  note.value = ''
   summonId.value = props.character.summons.length === 1 ? (props.character.summons[0]?.id ?? null) : null
   error.value = ''
 })
+
+function targetBody() {
+  const t = target.value
+  if (!t) return undefined
+  if (t === 'self') return { kind: 'self' }
+  const [kind, id] = t.split(':')
+  return { kind, id }
+}
 
 async function submit() {
   const a = props.ability
   if (!a) return
   error.value = ''
-  if (rollMode.value === 'manual') {
-    const r = Number(manualRoll.value)
-    if (!Number.isInteger(r) || r < 1 || r > 20) {
-      error.value = 'Digite o valor do d20 (1 a 20)'
-      return
-    }
+  if (needsTarget.value && !target.value) {
+    error.value = a.dealsDamage ? 'Escolha o inimigo que você ataca' : 'Escolha o alvo'
+    return
+  }
+  if (a.prompt && !note.value.trim()) {
+    error.value = a.prompt
+    return
   }
   if (effect.value === 'SACRIFICE_SUMMON' && !props.character.summons.length) {
     error.value = 'Você não tem criatura para sacrificar'
     return
   }
 
-  const body: Record<string, unknown> = { rollMode: rollMode.value }
-  if (rollMode.value === 'manual') body.roll = Number(manualRoll.value)
+  const body: Record<string, unknown> = {}
+  if (takesTarget.value && target.value) body.target = targetBody()
+  if (a.prompt) body.note = note.value.trim()
   if (effect.value === 'SACRIFICE_SUMMON' && summonId.value) body.summonId = summonId.value
 
   busy.value = true
   let log: ActionResult['log'] = null
   const ok = await campaign.act(async () => {
-    const res = await api.post<ActionResult>(
-      `/characters/${props.character.id}/abilities/${a.id}/use`,
-      body,
-    )
+    const res = await api.post<ActionResult>(`/characters/${props.character.id}/abilities/${a.id}/use`, body)
     log = res.data.log
     return res
   })
@@ -114,42 +151,49 @@ async function submit() {
           </li>
         </ul>
 
-        <v-alert v-if="!campaign.canAct" type="warning" variant="tonal" density="compact" class="mb-3">
+        <v-alert v-if="campaign.fallen" type="error" variant="tonal" density="compact" class="mb-3">
+          {{ character.name }} está caído e não pode agir.
+        </v-alert>
+        <v-alert v-else-if="!campaign.canAct" type="warning" variant="tonal" density="compact" class="mb-3">
           Não é a sua vez: aguarde o seu turno no combate.
+        </v-alert>
+        <v-alert v-if="waiting" type="info" variant="tonal" density="compact" class="mb-3">
+          Sua ação anterior ainda espera o mestre.
         </v-alert>
         <v-alert v-if="!enoughMana" type="warning" variant="tonal" density="compact" class="mb-3">
           Mana insuficiente: precisa de {{ ability.manaCost }}, você tem {{ character.mana }}.
         </v-alert>
 
-        <div class="section-label">Dado</div>
-        <v-btn-toggle v-model="rollMode" mandatory divided variant="outlined" color="secondary" class="mb-2 roll-toggle">
-          <v-btn value="auto" prepend-icon="mdi-dice-d20">Rolar</v-btn>
-          <v-btn value="manual" prepend-icon="mdi-hand-back-right">Dado físico</v-btn>
-          <v-btn value="none">Sem dado</v-btn>
-        </v-btn-toggle>
-        <v-text-field
-          v-if="rollMode === 'manual'"
-          v-model.number="manualRoll"
-          label="Valor do d20"
-          type="number"
-          min="1"
-          max="20"
-          hide-details
-          autofocus
-          class="mb-2"
-        />
+        <template v-if="takesTarget">
+          <div class="section-label">{{ ability.dealsDamage ? 'Quem você ataca' : needsTarget ? 'Alvo' : 'Alvo (opcional)' }}</div>
+          <v-select
+            v-model="target"
+            :items="targetItems"
+            :clearable="!needsTarget"
+            :placeholder="ability.dealsDamage ? 'Escolha um inimigo' : 'Escolha o alvo'"
+            hide-details
+            class="mb-2"
+          />
+          <div v-if="ability.dealsDamage && !targetItems.length" class="hint">Não há inimigos em cena.</div>
+        </template>
 
-        <div v-if="effect === 'SUMMON' && character.summons.length" class="hint mt-2">
-          {{ character.summons.map((s) => s.name).join(', ') }} pode desaparecer ao invocar outra.
-        </div>
-        <div v-if="targetsSomeone" class="hint mt-2">
-          O mestre decide em quem o efeito cai.
-        </div>
+        <template v-if="ability.prompt">
+          <div class="section-label mt-2">{{ ability.prompt }}</div>
+          <v-text-field v-model="note" maxlength="120" hide-details autofocus class="mb-2" />
+        </template>
 
         <template v-if="effect === 'SACRIFICE_SUMMON' && summonOptions.length > 1">
           <div class="section-label mt-3">Qual criatura sacrificar?</div>
           <v-select v-model="summonId" :items="summonOptions" label="Criatura" hide-details />
         </template>
+
+        <div v-if="effect === 'SUMMON' && character.summons.length" class="hint mt-2">
+          {{ character.summons.map((s) => s.name).join(', ') }} pode desaparecer ao invocar outra.
+        </div>
+        <div v-if="needsMaster" class="hint mt-2">
+          <v-icon icon="mdi-dice-d20" size="x-small" />
+          Role o d20 na mesa. O mestre digita o valor e a ação acontece.
+        </div>
 
         <v-alert v-if="error" type="error" variant="tonal" density="compact" class="mt-3">{{ error }}</v-alert>
       </v-card-text>
@@ -157,8 +201,14 @@ async function submit() {
       <v-card-actions class="px-6 pb-5">
         <v-spacer />
         <v-btn variant="text" @click="open = false">Cancelar</v-btn>
-        <v-btn color="primary" variant="flat" :loading="busy" :disabled="!enoughMana || !campaign.canAct" @click="submit">
-          Usar
+        <v-btn
+          color="primary"
+          variant="flat"
+          :loading="busy"
+          :disabled="!enoughMana || !campaign.canAct || (needsMaster && waiting)"
+          @click="submit"
+        >
+          {{ needsMaster ? 'Declarar' : 'Usar' }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -188,11 +238,6 @@ async function submit() {
   letter-spacing: 0.08em;
   opacity: 0.6;
   margin-bottom: 6px;
-}
-
-.roll-toggle {
-  flex-wrap: wrap;
-  height: auto;
 }
 
 .hint {

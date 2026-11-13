@@ -39,6 +39,10 @@ export interface Ability {
   kind: AbilityKind
   name: string
   manaCost: number
+  /** Ataque: o valor do d20 vira o dano no alvo. */
+  dealsDamage: boolean
+  /** Pergunta feita antes de usar (ex.: "O que você aposta?"). */
+  prompt: string | null
   description: string
   crits: Crit[] | null
   effect: AbilityEffect | null
@@ -162,15 +166,30 @@ export interface Summon {
   conditions: Condition[]
 }
 
-/** Inimigo/NPC controlado pelo mestre (age no turno do mestre). */
+/** Faixa de saúde do inimigo: é o que o jogador vê no lugar da vida. */
+export type HealthBand = 'INTACT' | 'WOUNDED' | 'BADLY_WOUNDED' | 'NEAR_DEATH' | 'DOWN'
+
+export const HEALTH_BANDS: Record<HealthBand, { label: string; color: string }> = {
+  INTACT: { label: 'Intacto', color: 'success' },
+  WOUNDED: { label: 'Ferido', color: 'warning' },
+  BADLY_WOUNDED: { label: 'Muito ferido', color: 'orange-darken-2' },
+  NEAR_DEATH: { label: 'Por um fio', color: 'error' },
+  DOWN: { label: 'Caído', color: 'error' },
+}
+
+/**
+ * Inimigo/NPC controlado pelo mestre (age no turno do mestre). Só o mestre
+ * recebe vida e anotações; o jogador recebe a faixa de saúde e as condições.
+ */
 export interface Npc {
   id: string
   campaignId: string
   name: string
-  hp: number
-  hpMax: number
-  notes: string
+  band: HealthBand
   conditions: Condition[]
+  hp?: number
+  hpMax?: number
+  notes?: string
 }
 
 export interface InventoryItem {
@@ -192,6 +211,8 @@ export interface Character {
   hpMax: number
   mana: number
   manaMax: number
+  /** Instabilidade temporal (só o Tecelão do Tempo acumula). */
+  instability: number
   notes: string
   summons: Summon[]
   conditions: Condition[]
@@ -258,6 +279,27 @@ export interface PendingEffect {
   conditions: { defId?: string; name?: string; turns?: number | null }[]
 }
 
+/** Em quem a habilidade foi declarada. */
+export interface ActionTarget {
+  kind: 'self' | 'character' | 'npc'
+  id: string
+  name: string
+}
+
+/** Habilidade declarada que espera o mestre (d20, dano, confirmar o alvo). */
+export interface PendingAction {
+  characterId: string
+  characterName: string
+  abilityId: string
+  abilityName: string
+  manaCost: number
+  target: ActionTarget | null
+  /** O mestre digita o d20: a habilidade causa dano ou tem faixa de crítico. */
+  needsRoll: boolean
+  dealsDamage: boolean
+  note?: string
+}
+
 /** Quem pode receber condição. */
 export type TargetKind = 'character' | 'summon' | 'npc'
 export interface ConditionTarget {
@@ -276,6 +318,7 @@ export interface LogEntry {
   revertedAt: string | null
   revertible: boolean
   pendingEffect: PendingEffect | null
+  pendingAction: PendingAction | null
   actor: { id: string; displayName: string } | null
 }
 

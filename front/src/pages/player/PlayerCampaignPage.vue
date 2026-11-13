@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import CharacterCard from '@/components/CharacterCard.vue'
 import DiceRoller from '@/components/DiceRoller.vue'
 import ImageOverlay from '@/components/ImageOverlay.vue'
+import LevelUpEffect from '@/components/LevelUpEffect.vue'
 import LogFeed from '@/components/LogFeed.vue'
 import MySheet from '@/components/MySheet.vue'
 import NpcCard from '@/components/NpcCard.vue'
@@ -13,6 +14,8 @@ import { useCampaignStore } from '@/stores/campaign'
 import { useClassesStore } from '@/stores/classes'
 import { useNotifyStore } from '@/stores/notify'
 import { useRealtimeStore } from '@/stores/realtime'
+import { HP_PER_LEVEL } from '@/utils/classHooks'
+import { buzz } from '@/utils/haptics'
 
 const route = useRoute()
 const router = useRouter()
@@ -57,7 +60,21 @@ watch(
 watch(
   () => campaign.isMyTurn,
   (mine, before) => {
-    if (mine && !before) notify.success('Sua vez!')
+    if (mine && !before) {
+      notify.success('O foco está em você!')
+      buzz([200, 100, 200])
+    }
+  },
+)
+
+// o mestre resolveu (ou negou) a ação que o jogador tinha declarado
+watch(
+  () => campaign.myPendingAction?.id ?? null,
+  (now, before) => {
+    if (before && !now) {
+      notify.info('O mestre resolveu a sua ação')
+      buzz(120)
+    }
   },
 )
 
@@ -163,6 +180,7 @@ watch(tab, (t) => {
       </template>
 
       <ImageOverlay :image="state.shownImage" />
+      <LevelUpEffect :level="me?.level" :hp-per-level="HP_PER_LEVEL" />
     </template>
   </div>
 </template>

@@ -10,6 +10,7 @@ import DiceRoller from '@/components/DiceRoller.vue'
 import ImagesPanel from '@/components/ImagesPanel.vue'
 import LogFeed from '@/components/LogFeed.vue'
 import NpcCard from '@/components/NpcCard.vue'
+import PendingActions from '@/components/PendingActions.vue'
 import QuickFormDialog from '@/components/QuickFormDialog.vue'
 import { api } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
@@ -121,7 +122,7 @@ function openCondition(t: ConditionTarget) {
   conditionOpen.value = true
 }
 
-type FormKind = 'item' | 'summon' | 'sheet' | 'summonDamage' | 'summonHeal' | 'npcNew' | 'npcDamage' | 'npcHeal'
+type FormKind = 'item' | 'summon' | 'sheet' | 'summonDamage' | 'summonHeal' | 'npcNew' | 'npcDamage' | 'npcHeal' | 'npcNotes'
 const formOpen = ref(false)
 const formKind = ref<FormKind>('item')
 const formSummon = ref<Summon | null>(null)
@@ -173,6 +174,14 @@ const FORMS = computed<Record<FormKind, { title: string; fields: QuickField[]; i
     fields: [
       { key: 'name', label: 'Nome', required: true, maxlength: 60, hint: 'ex.: Goblin, Guarda da ponte' },
       { key: 'hpMax', label: 'Vida', type: 'number', required: true, min: 1, max: 9999 },
+      {
+        key: 'quantity',
+        label: 'Quantos',
+        type: 'number',
+        min: 1,
+        max: 20,
+        hint: 'Com mais de um, o nome ganha número: Goblin 1, Goblin 2…',
+      },
     ],
   },
   npcDamage: {
@@ -188,6 +197,11 @@ const FORMS = computed<Record<FormKind, { title: string; fields: QuickField[]; i
       { key: 'hp', label: 'Vida recuperada', type: 'number', required: true, min: 1, max: 9999 },
       { key: 'reason', label: 'Motivo', maxlength: 120 },
     ],
+  },
+  npcNotes: {
+    title: `Anotações de ${formNpc.value?.name ?? ''}`,
+    fields: [{ key: 'notes', label: 'Só o mestre vê', type: 'textarea', maxlength: 1000, hint: 'Manhas, fraquezas, o que ele faz quando está ferido…' }],
+    initial: formNpc.value ? { notes: formNpc.value.notes ?? '' } : undefined,
   },
 }))
 
@@ -214,6 +228,8 @@ async function submitForm(values: Record<string, string | number>) {
     npcNew: () => api.post<ActionResult>(`/campaigns/${id.value}/npcs`, values),
     npcDamage: () => api.post<ActionResult>(`/npcs/${n?.id}/adjust`, { ...values, hp: -Number(values.hp) }),
     npcHeal: () => api.post<ActionResult>(`/npcs/${n?.id}/adjust`, values),
+    // vazio apaga as anotações (o formulário omite campo vazio)
+    npcNotes: () => api.patch<ActionResult>(`/npcs/${n?.id}`, { notes: String(values.notes ?? '') }),
   }[formKind.value]
   const ok = await campaign.act(request)
   if (ok) formOpen.value = false
@@ -356,6 +372,8 @@ const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/
           <!-- aventura / encerrada -->
           <div v-else class="table-grid">
             <div class="main-col">
+              <PendingActions v-if="state.status === 'ACTIVE'" />
+
               <section v-if="state.status === 'ACTIVE' || state.npcs.length" class="enemies">
                 <div class="section-head">
                   <span class="side-title">Inimigos</span>
@@ -383,6 +401,7 @@ const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/
                       <v-btn size="small" color="error" variant="tonal" prepend-icon="mdi-sword-cross" @click="openForm(null, 'npcDamage', null, n)">Dano</v-btn>
                       <v-btn size="small" color="success" variant="tonal" icon="mdi-heart-plus" :aria-label="`Curar ${n.name}`" @click="openForm(null, 'npcHeal', null, n)" />
                       <v-btn size="small" color="warning" variant="tonal" icon="mdi-alert-decagram" :aria-label="`Condição em ${n.name}`" @click="openCondition({ kind: 'npc', id: n.id, name: n.name })" />
+                      <v-btn size="small" variant="tonal" icon="mdi-note-text-outline" :aria-label="`Anotações de ${n.name}`" @click="openForm(null, 'npcNotes', null, n)" />
                       <v-btn size="small" variant="text" icon="mdi-close" :aria-label="`Tirar ${n.name} de cena`" @click="removeNpc(n)" />
                     </template>
                   </NpcCard>

@@ -14,7 +14,7 @@ import {
   ConditionPolarity,
   Prisma,
 } from '@prisma/client';
-import { applyStats, clamp, DeltaBuilder } from './journal';
+import { applyStats, clamp, DeltaBuilder, Line, same } from './journal';
 
 type Tx = Prisma.TransactionClient;
 
@@ -133,6 +133,8 @@ type ApplyHp = (
 /**
  * Fim de turno para um conjunto de condições do mesmo portador: vida por
  * turno e desconto de 1 turno, removendo as que acabaram.
+ * `hideNumbers`: a vida de quem carrega é só do mestre (inimigos); os jogadores
+ * leem que houve dano, sem o valor nem a vida que sobrou.
  */
 async function tickConditions(
   tx: Tx,
@@ -140,19 +142,28 @@ async function tickConditions(
   holderName: string,
   applyHp: ApplyHp,
   delta: DeltaBuilder,
-): Promise<string[]> {
-  const parts: string[] = [];
+  hideNumbers = false,
+): Promise<Line[]> {
+  const parts: Line[] = [];
   for (const c of conditions) {
     if (c.hpPerTurn) {
       const { applied, hp, hpMax } = await applyHp(c.hpPerTurn);
       if (applied) {
-        parts.push(
+        const fell = applied < 0 && hp === 0 ? ' — caiu!' : '';
+        const full =
           (applied < 0
             ? `${holderName} sofreu ${-applied} de dano por ${c.name}`
             : `${holderName} recuperou ${applied} de vida por ${c.name}`) +
-            ` (vida ${hp}/${hpMax})` +
-            (applied < 0 && hp === 0 ? ' — caiu!' : ''),
-        );
+          ` (vida ${hp}/${hpMax})` +
+          fell;
+        parts.push({
+          master: full,
+          public: hideNumbers
+            ? (applied < 0
+                ? `${holderName} sofreu dano por ${c.name}`
+                : `${holderName} recuperou vida por ${c.name}`) + fell
+            : full,
+        });
       }
     }
 
@@ -160,7 +171,7 @@ async function tickConditions(
     if (c.turnsLeft <= 1) {
       delta.deletedCondition(c);
       await tx.condition.delete({ where: { id: c.id } });
-      parts.push(`${c.name} acabou em ${holderName}`);
+      parts.push(same(`${c.name} acabou em ${holderName}`));
     } else {
       await tx.condition.update({
         where: { id: c.id },
@@ -182,7 +193,7 @@ export async function endTurnOf(
   tx: Tx,
   character: Character,
   delta: DeltaBuilder,
-): Promise<string[]> {
+): Promise<Line[]> {
   let ch = character;
   const parts = await tickConditions(
     tx,
@@ -238,8 +249,8 @@ export async function endTurnOfNpcs(
   tx: Tx,
   campaignId: string,
   delta: DeltaBuilder,
-): Promise<string[]> {
-  const parts: string[] = [];
+): Promise<Line[]> {
+  const parts: Line[] = [];
   const npcs = await tx.npc.findMany({
     where: { campaignId },
     include: { conditions: byCreation },
@@ -263,6 +274,7 @@ export async function endTurnOfNpcs(
           return { applied, hp, hpMax: n.hpMax };
         },
         delta,
+        true,
       )),
     );
   }

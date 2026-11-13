@@ -16,14 +16,28 @@ import {
   Summon,
 } from '@prisma/client';
 import { logSelect, toLogDto } from '../realtime/state';
+import { HP_PER_LEVEL } from './rules';
 
 type Db = Prisma.TransactionClient;
 
+/**
+ * Uma frase do log em duas versões: a do mestre (com números) e a pública,
+ * narrada. Quando não há nada a esconder, as duas são iguais (`same`).
+ */
+export interface Line {
+  master: string;
+  public: string;
+}
+export const same = (text: string): Line => ({ master: text, public: text });
+
 export interface StatDiff {
   hp?: number;
+  /** Muda sozinho quando o nível muda (HP_PER_LEVEL por nível). */
+  hpMax?: number;
   mana?: number;
   xp?: number;
   level?: number;
+  instability?: number;
 }
 
 type ConditionSnap = Omit<Condition, 'createdAt'> & { createdAt: string };
@@ -47,6 +61,34 @@ export interface PendingEffect {
   conditions: PendingCondition[];
 }
 
+/** Em quem a habilidade foi declarada. */
+export interface ActionTarget {
+  kind: 'self' | 'character' | 'npc';
+  id: string;
+  name: string;
+}
+
+/**
+ * Habilidade declarada pelo jogador que espera o mestre: ele digita o d20
+ * (que vira o dano e/ou o crítico) ou confirma o alvo inimigo. A mana já foi
+ * cobrada na declaração e volta se o mestre negar.
+ */
+export interface PendingAction {
+  characterId: string;
+  characterName: string;
+  abilityId: string;
+  abilityName: string;
+  manaCost: number;
+  target: ActionTarget | null;
+  /** O d20 do mestre é obrigatório: a habilidade causa dano ou tem faixa de crítico. */
+  needsRoll: boolean;
+  dealsDamage: boolean;
+  /** Resposta do jogador à pergunta da habilidade (ex.: o que apostou). */
+  note?: string;
+  /** Invocação escolhida para sacrificar. */
+  summonId?: string;
+}
+
 export interface TurnPos {
   round: number;
   turnIndex: number;
@@ -63,6 +105,13 @@ export interface Delta {
   itemQty?: { itemId: string; qty: number }[];
   /** Efeito pendente que esta ação consumiu (desfazer devolve). */
   clearedPending?: { logId: string; effect: PendingEffect };
+  /** Ação declarada que esta resolução consumiu: desfazer a devolve como pendente. */
+  clearedAction?: {
+    logId: string;
+    action: PendingAction;
+    /** O delta da declaração (a mana cobrada), para poder negar depois. */
+    delta: Prisma.JsonValue;
+  };
   created?: {
     summons?: string[];
     conditions?: string[];
@@ -109,6 +158,14 @@ export class DeltaBuilder {
     this.delta.clearedPending = { logId, effect };
   }
 
+  clearedAction(
+    logId: string,
+    action: PendingAction,
+    declaration: Prisma.JsonValue,
+  ) {
+    this.delta.clearedAction = { logId, action, delta: declaration };
+  }
+
   turn(campaignId: string, from: TurnPos, to: TurnPos) {
     this.delta.turn = { campaignId, from, to };
   }
@@ -153,6 +210,8 @@ export class DeltaBuilder {
 /**
  * Aplica variações em vida/mana/XP/nível respeitando os limites e registra no
  * delta só o que de fato mudou (ex.: dano de 30 em quem tem 12 de vida → -12).
+ * Subir de nível aumenta a vida máxima (e a atual) em HP_PER_LEVEL por nível;
+ * descer tira o mesmo tanto da máxima.
  */
 export async function applyStats(
   db: Db,
@@ -160,17 +219,27 @@ export async function applyStats(
   diff: StatDiff,
   delta: DeltaBuilder,
 ): Promise<{ character: Character; applied: Required<StatDiff> }> {
+  const level = Math.max(1, character.level + (diff.level ?? 0));
+  const hpMax = Math.max(
+    1,
+    character.hpMax + (level - character.level) * HP_PER_LEVEL,
+  );
+  const hpGain = Math.max(0, hpMax - character.hpMax);
   const next = {
-    hp: clamp(character.hp + (diff.hp ?? 0), 0, character.hpMax),
+    hpMax,
+    hp: clamp(character.hp + (diff.hp ?? 0) + hpGain, 0, hpMax),
     mana: clamp(character.mana + (diff.mana ?? 0), 0, character.manaMax),
     xp: Math.max(0, character.xp + (diff.xp ?? 0)),
-    level: Math.max(1, character.level + (diff.level ?? 0)),
+    level,
+    instability: Math.max(0, character.instability + (diff.instability ?? 0)),
   };
   const applied = {
     hp: next.hp - character.hp,
+    hpMax: next.hpMax - character.hpMax,
     mana: next.mana - character.mana,
     xp: next.xp - character.xp,
     level: next.level - character.level,
+    instability: next.instability - character.instability,
   };
   delta.stat(character.id, applied);
   const updated = await db.character.update({
@@ -185,13 +254,16 @@ export async function revertDelta(db: Db, delta: Delta) {
   for (const s of delta.stats ?? []) {
     const c = await db.character.findUnique({ where: { id: s.characterId } });
     if (!c) continue;
+    const hpMax = Math.max(1, c.hpMax - (s.hpMax ?? 0));
     await db.character.update({
       where: { id: c.id },
       data: {
-        hp: clamp(c.hp - (s.hp ?? 0), 0, c.hpMax),
+        hpMax,
+        hp: clamp(c.hp - (s.hp ?? 0), 0, hpMax),
         mana: clamp(c.mana - (s.mana ?? 0), 0, c.manaMax),
         xp: Math.max(0, c.xp - (s.xp ?? 0)),
         level: Math.max(1, c.level - (s.level ?? 0)),
+        instability: Math.max(0, c.instability - (s.instability ?? 0)),
       },
     });
   }
@@ -227,6 +299,20 @@ export async function revertDelta(db: Db, delta: Delta) {
       data: {
         pendingEffect: delta.clearedPending
           .effect as unknown as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  if (delta.clearedAction) {
+    const { logId, action, delta: declaration } = delta.clearedAction;
+    await db.logEntry.updateMany({
+      where: { id: logId },
+      data: {
+        pendingAction: action as unknown as Prisma.InputJsonValue,
+        delta:
+          declaration === null
+            ? Prisma.DbNull
+            : (declaration as Prisma.InputJsonValue),
       },
     });
   }
@@ -368,10 +454,14 @@ export async function writeLog(
     actorUserId: string | null;
     characterId?: string | null;
     type: LogType;
+    /** O que os jogadores leem. */
     message: string;
+    /** O que o mestre lê, quando difere de `message` (ex.: com a vida dos inimigos). */
+    masterMessage?: string | null;
     roll?: number | null;
     delta?: DeltaBuilder | null;
     pendingEffect?: PendingEffect | null;
+    pendingAction?: PendingAction | null;
   },
 ) {
   const entry = await db.logEntry.create({
@@ -381,9 +471,16 @@ export async function writeLog(
       characterId: data.characterId ?? null,
       type: data.type,
       message: data.message,
+      masterMessage:
+        data.masterMessage && data.masterMessage !== data.message
+          ? data.masterMessage
+          : null,
       roll: data.roll ?? null,
       pendingEffect: data.pendingEffect?.conditions.length
         ? (data.pendingEffect as unknown as Prisma.InputJsonValue)
+        : Prisma.DbNull,
+      pendingAction: data.pendingAction
+        ? (data.pendingAction as unknown as Prisma.InputJsonValue)
         : Prisma.DbNull,
       delta:
         data.delta && !data.delta.isEmpty

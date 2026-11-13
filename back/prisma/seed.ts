@@ -22,6 +22,8 @@ interface SeedAbility {
   kind: AbilityKind;
   name: string;
   manaCost: number;
+  dealsDamage?: boolean;
+  prompt?: string;
   description: string;
   crits?: { min: number; max: number; text: string }[];
   effect?: AbilityEffect;
@@ -109,6 +111,8 @@ async function main() {
         const abilityData = {
           kind: a.kind,
           manaCost: a.manaCost,
+          dealsDamage: a.dealsDamage ?? false,
+          prompt: a.prompt ?? null,
           description: a.description,
           crits: json(a.crits),
           effect: a.effect ?? null,

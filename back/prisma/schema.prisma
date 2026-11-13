@@ -151,6 +151,10 @@ model Ability {
   kind        AbilityKind
   name        String
   manaCost    Int            @default(0)
+  /// Ataque: o valor do d20 (digitado pelo mestre) vira o dano no alvo.
+  dealsDamage Boolean        @default(false)
+  /// Pergunta feita ao jogador antes de usar (ex.: "O que você aposta?"); a resposta vai no log.
+  prompt      String?
   description String
   /// Lista de faixas de crítico: [{ "min": 18, "max": 20, "text": "..." }]
   crits       Json?
@@ -177,6 +181,8 @@ model Character {
   hpMax      Int
   mana       Int
   manaMax    Int
+  /// Instabilidade temporal (Tecelão do Tempo): sobe a cada uso e rompe em paradoxo no limite.
+  instability Int     @default(0)
   notes      String   @default("")
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -303,13 +309,18 @@ model LogEntry {
   actorUserId   String?
   characterId   String?
   type          LogType
+  /// Texto que os jogadores leem (narrado, sem números do que é do mestre).
   message       String
+  /// Versão completa, só para o mestre (ex.: com a vida dos inimigos). Null = igual a `message`.
+  masterMessage String?
   /// Valores antes/depois, usados pelo "desfazer" do mestre.
   delta         Json?
   /// Resultado de dado associado (d20), quando houver.
   roll          Int?
   /// Condições que o mestre ainda precisa aplicar em alguém ("Aplicar em…").
   pendingEffect Json?
+  /// Ação declarada pelo jogador que espera o mestre (d20, dano, confirmar o alvo).
+  pendingAction Json?
   revertedAt    DateTime?
   createdAt     DateTime  @default(now())
 

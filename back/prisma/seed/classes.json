@@ -7,7 +7,7 @@
     "identity": "Tudo gira em torno de sorte, risco e decisões extremas.",
     "mechanicName": "Aposta",
     "mechanicText": "Quanto maior o risco, maior o possível benefício.",
-    "baseHp": 20,
+    "baseHp": 30,
     "baseMana": 10,
     "maxSummons": 0,
     "color": "#a83232",
@@ -29,6 +29,7 @@
         "kind": "SKILL",
         "name": "Tudo ou Nada",
         "manaCost": 2,
+        "prompt": "O que você aposta?",
         "description": "O Apostador aposta algo importante:\n• vida\n• posição\n• recurso\nSe der certo: recebe enorme vantagem.\nSe falhar: sofre consequência forte."
       },
       {
@@ -47,7 +48,7 @@
     "identity": "Especialista em dor, intimidação e execução.\nO Carrasco não luta rápido. Ele domina o combate pela pressão.",
     "mechanicName": "Condenação",
     "mechanicText": "Quanto mais ferido ou assustado o alvo estiver, mais vulnerável fica ao Carrasco.",
-    "baseHp": 20,
+    "baseHp": 30,
     "baseMana": 10,
     "maxSummons": 0,
     "color": "#9b2c2c",
@@ -57,6 +58,7 @@
         "kind": "BASIC",
         "name": "Golpe Pesado",
         "manaCost": 0,
+        "dealsDamage": true,
         "description": "Ataque brutal e lento.\nPode deixar o alvo hesitante."
       },
       {
@@ -76,6 +78,7 @@
         "kind": "SKILL",
         "name": "Execução",
         "manaCost": 4,
+        "dealsDamage": true,
         "description": "Golpe devastador contra alvo vulnerável.",
         "crits": [
           { "min": 18, "max": 18, "text": "causa terror", "condition": "amedrontado", "turns": 2 },
@@ -93,7 +96,7 @@
     "identity": "Combatente agressivo e veloz que cresce em força quanto mais perigosa a situação fica.",
     "mechanicName": "Frenesi",
     "mechanicText": "Quanto mais ferido estiver:\n• mais perigoso se torna\n• ataques ficam mais violentos\n• ignora parte da dor",
-    "baseHp": 20,
+    "baseHp": 30,
     "baseMana": 10,
     "maxSummons": 0,
     "color": "#d04a3a",
@@ -103,12 +106,14 @@
         "kind": "BASIC",
         "name": "Golpe Serrilhado",
         "manaCost": 0,
+        "dealsDamage": true,
         "description": "Ataque rápido corpo a corpo.\nFica mais forte contra alvos já feridos."
       },
       {
         "kind": "SKILL",
         "name": "Passo Predatório",
         "manaCost": 1,
+        "dealsDamage": true,
         "description": "Avança instantaneamente até o alvo e ataca.",
         "crits": [{ "min": 18, "max": 20, "text": "deixa o alvo desequilibrado.", "condition": "desequilibrado", "turns": 1 }]
       },
@@ -141,7 +146,7 @@
     "identity": "Usa máscaras misteriosas para alterar emoções, comportamento e presença.",
     "mechanicName": "Máscaras",
     "mechanicText": "Cada alvo só pode carregar 1 máscara ativa.\nAs máscaras podem ser usadas:\n• em aliados\n• em inimigos\n• no próprio Mascareiro\nTrocar máscara substitui a anterior.",
-    "baseHp": 20,
+    "baseHp": 30,
     "baseMana": 10,
     "maxSummons": 0,
     "color": "#c9a227",
@@ -193,7 +198,7 @@
     "identity": "Manipula trocas, objetos, mentiras e oportunidades.\nNunca luta “justo”.",
     "mechanicName": "Barganha",
     "mechanicText": "O Mercador sempre tenta transformar desvantagem em vantagem.\nPode:\n• trocar condições\n• enganar\n• negociar durante combate",
-    "baseHp": 20,
+    "baseHp": 30,
     "baseMana": 10,
     "maxSummons": 0,
     "color": "#a8452f",
@@ -235,7 +240,7 @@
     "identity": "Usa cadáveres e transforma morte em recurso.",
     "mechanicName": "Reanimação",
     "mechanicText": "Pode manter 1 criatura morta revivida ativa.\nA criatura:\n• depende do cadáver usado\n• acompanha o Necromante\n• desaparece ao invocar outra",
-    "baseHp": 20,
+    "baseHp": 30,
     "baseMana": 10,
     "maxSummons": 1,
     "color": "#9466d6",
@@ -245,6 +250,7 @@
         "kind": "BASIC",
         "name": "Toque Fúnebre",
         "manaCost": 0,
+        "dealsDamage": true,
         "description": "Ataque sombrio fortalecido pela presença da morte."
       },
       {
@@ -284,7 +290,7 @@
     "identity": "Especialista em furtividade, distração, infiltração e roubo oportunista.\nA Raposa Vermelha nunca vence pela força. Ela vence manipulando atenção, roubando vantagem e atacando no momento certo.\nPode roubar: objetos, armas, informações, atenção e oportunidades. Tudo de forma rápida e quase imperceptível.",
     "mechanicName": "Oportunismo",
     "mechanicText": "Quando alguém hesita, se distrai, erra ou perde foco, a Raposa Vermelha pode:\n• se mover sem ser percebida\n• furtar algo pequeno\n• atacar melhor\n• escapar facilmente",
-    "baseHp": 20,
+    "baseHp": 30,
     "baseMana": 10,
     "maxSummons": 0,
     "color": "#c73a2e",
@@ -294,6 +300,7 @@
         "kind": "BASIC",
         "name": "Corte Furtivo",
         "manaCost": 0,
+        "dealsDamage": true,
         "description": "Ataque rápido e preciso com faca curta.\nMuito mais perigoso contra alvos distraídos ou vulneráveis."
       },
       {
@@ -341,7 +348,7 @@
     "identity": "Manipula sentidos, percepção e a forma como os outros enxergam a realidade.",
     "mechanicName": "Presságio",
     "mechanicText": "Percebe falhas e fraquezas antes dos outros.\nAlvos marcados pelo Rasga-Véus:\n• ficam mais vulneráveis\n• têm sentidos distorcidos\n• sofrem efeitos ampliados",
-    "baseHp": 20,
+    "baseHp": 30,
     "baseMana": 10,
     "maxSummons": 0,
     "color": "#3fb8a9",
@@ -386,7 +393,7 @@
     "identity": "Manipula ritmo, velocidade e distorções temporais.",
     "mechanicName": "Instabilidade Temporal",
     "mechanicText": "Quanto mais usa magia temporal:\n• mais fortes ficam os efeitos\n• maior o risco de paradoxos",
-    "baseHp": 20,
+    "baseHp": 30,
     "baseMana": 10,
     "maxSummons": 0,
     "color": "#3d8bd9",
@@ -396,6 +403,7 @@
         "kind": "BASIC",
         "name": "Estilhaço Temporal",
         "manaCost": 0,
+        "dealsDamage": true,
         "description": "Ataque mágico que desacelera o alvo levemente."
       },
       {

@@ -16,6 +16,7 @@ const props = withDefaults(
 const emit = defineEmits<{ revert: [entry: LogEntry]; apply: [entry: LogEntry]; discard: [entry: LogEntry] }>()
 
 const hasPending = (e: LogEntry) => !!e.pendingEffect && !e.revertedAt
+const awaitingMaster = (e: LogEntry) => !!e.pendingAction && !e.revertedAt
 
 const ICON: Record<LogType, { icon: string; color: string }> = {
   DAMAGE: { icon: 'mdi-sword-cross', color: 'error' },
@@ -80,6 +81,9 @@ watch(box, (el) => {
         <div class="entry-meta">
           {{ time(entry.createdAt) }}
           <template v-if="entry.revertedAt"> · desfeito</template>
+        </div>
+        <div v-if="awaitingMaster(entry)" class="pending">
+          <span class="waiting"><v-icon icon="mdi-dice-d20" size="x-small" /> aguardando o mestre</span>
         </div>
         <div v-if="hasPending(entry)" class="pending">
           <template v-if="canApply">

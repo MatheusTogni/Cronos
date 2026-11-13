@@ -10,13 +10,19 @@ import { Role } from '@prisma/client';
 import type { Server, Socket } from 'socket.io';
 import type { AuthUser } from '../auth/auth-user';
 import { AuthService } from '../auth/auth.service';
-import { assertCampaignMember, loadCampaign } from '../campaigns/access';
+import {
+  assertCampaignMember,
+  isCampaignMaster,
+  loadCampaign,
+} from '../campaigns/access';
 import { PrismaService } from '../prisma/prisma.service';
+import type { Audience } from './state';
 
 type AuthedSocket = Socket<any, any, any, { user?: AuthUser }>;
 
 export const rooms = {
-  campaign: (id: string) => `campaign:${id}`,
+  /** Uma sala por papel: o mestre recebe o estado completo, os jogadores o filtrado. */
+  campaign: (id: string, audience: Audience) => `campaign:${id}:${audience}`,
   user: (id: string) => `user:${id}`,
   players: 'players',
 };
@@ -28,7 +34,8 @@ export const rooms = {
  * Salas:
  *  - user:<id>      — avisos pessoais (ex.: removido do lobby)
  *  - players        — todos os jogadores logados (lista de campanhas abertas mudou)
- *  - campaign:<id>  — quem está com a campanha aberta (entra via "campaign:join")
+ *  - campaign:<id>:master   — o mestre da campanha aberta (entra via "campaign:join")
+ *  - campaign:<id>:players  — os jogadores da campanha aberta (idem)
  */
 @WebSocketGateway({
   cors: process.env.CORS_ORIGIN
@@ -68,9 +75,11 @@ export class RealtimeGateway implements OnGatewayInit {
     const campaignId = body?.campaignId;
     if (!user || typeof campaignId !== 'string') return { ok: false };
 
+    let audience: Audience;
     try {
       const campaign = await loadCampaign(this.prisma, campaignId);
       await assertCampaignMember(this.prisma, campaign, user);
+      audience = isCampaignMaster(campaign, user) ? 'master' : 'players';
     } catch {
       return { ok: false };
     }
@@ -79,7 +88,7 @@ export class RealtimeGateway implements OnGatewayInit {
     for (const room of socket.rooms) {
       if (room.startsWith('campaign:')) await socket.leave(room);
     }
-    await socket.join(rooms.campaign(campaignId));
+    await socket.join(rooms.campaign(campaignId, audience));
     return { ok: true };
   }
 

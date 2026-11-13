@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  Ability,
   AbilityEffect,
   Campaign,
   CampaignStatus,
@@ -23,6 +24,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { LogDto } from '../realtime/state';
 import {
+  ActionTargetDto,
   AdjustDto,
   AdjustSummonDto,
   ApplyPendingDto,
@@ -30,6 +32,7 @@ import {
   CreateItemDto,
   CreateSummonDto,
   NoteDto,
+  ResolveActionDto,
   RollDto,
   UpdateCharacterDto,
   UpdateItemDto,
@@ -43,18 +46,29 @@ import {
   joinPt,
   turnsLabel,
 } from './conditions';
+import { BAND_NARRATION, healthBand } from './health';
 import {
+  ActionTarget,
   applyStats,
   clamp,
   Delta,
   DeltaBuilder,
+  PendingAction,
   PendingCondition,
   PendingEffect,
   revertDelta,
   writeLog,
 } from './journal';
+import { INSTABILITY_CLASS, INSTABILITY_LIMIT } from './rules';
 
 type Tx = Prisma.TransactionClient;
+
+type CharacterFull = Prisma.CharacterGetPayload<{
+  include: {
+    class: true;
+    summons: { include: { conditions: true } };
+  };
+}>;
 
 interface Crit {
   min: number;
@@ -93,6 +107,11 @@ export class GameService {
 
   // ───────────────────────── habilidades ─────────────────────────
 
+  /**
+   * O jogador declara a habilidade e o alvo; o d20 e o dano são do mestre.
+   * Habilidade que causa dano, tem faixa de crítico ou põe efeito num inimigo
+   * fica aguardando o mestre (a mana já é cobrada). As demais resolvem na hora.
+   */
   async useAbility(
     characterId: string,
     abilityId: string,
@@ -113,6 +132,9 @@ export class GameService {
           },
         },
       });
+      if (ch.hp === 0) {
+        throw new BadRequestException(`${ch.name} está caído e não pode agir`);
+      }
       const ability = await tx.ability.findUnique({ where: { id: abilityId } });
       if (!ability || ability.classId !== ch.classId) {
         throw new NotFoundException(
@@ -124,168 +146,442 @@ export class GameService {
           `Mana insuficiente: ${ability.name} custa ${ability.manaCost} e ${ch.name} tem ${ch.mana}`,
         );
       }
-
-      const roll =
-        dto.rollMode === 'auto'
-          ? randomInt(1, 21)
-          : dto.rollMode === 'manual'
-            ? (dto.roll ?? null)
-            : null;
-      const crit =
-        roll === null
-          ? undefined
-          : ((ability.crits as Crit[] | null) ?? []).find(
-              (c) => roll >= c.min && roll <= c.max,
-            );
-
-      const delta = new DeltaBuilder();
-      if (ability.manaCost) {
-        await applyStats(tx, ch, { mana: -ability.manaCost }, delta);
+      if (ability.prompt && !dto.note) {
+        throw new BadRequestException(ability.prompt);
       }
+      if (ability.effect === AbilityEffect.SACRIFICE_SUMMON) {
+        this.pickVictim(ch, dto.summonId); // falha cedo, antes de cobrar a mana
+      }
+      const target = await this.resolveTarget(tx, ch, ability, dto.target);
 
-      // Alvo e nome da criatura: o jogador só escolhe a habilidade; quem
-      // aplica efeitos em alguém (condições, etc.) é o mestre.
-      const target = ctx.isMaster ? dto.target : undefined;
-      const targetCharacterId = ctx.isMaster
-        ? dto.targetCharacterId
-        : undefined;
-      const summonName = ctx.isMaster ? dto.summonName : undefined;
-
-      let targetLabel = target || null;
-      let targetChar: Character | null = null;
-      if (targetCharacterId) {
-        targetChar = await tx.character.findUnique({
-          where: { id: targetCharacterId },
+      const crits = (ability.crits as Crit[] | null) ?? [];
+      const needsRoll = ability.dealsDamage || crits.length > 0;
+      const needsMaster =
+        needsRoll ||
+        (ability.effect === AbilityEffect.TARGET_CONDITION &&
+          target?.kind === 'npc');
+      if (needsMaster) {
+        const open = await tx.logEntry.findFirst({
+          where: {
+            characterId: ch.id,
+            revertedAt: null,
+            pendingAction: { not: Prisma.DbNull },
+          },
+          select: { id: true },
         });
-        if (!targetChar || targetChar.campaignId !== ch.campaignId) {
-          throw new BadRequestException('Alvo não está nesta campanha');
-        }
-        targetLabel = targetChar.id === ch.id ? 'si mesmo' : targetChar.name;
-      }
-
-      // Efeito automático
-      const effect = (ability.effectData ?? {}) as EffectData;
-      const outcome: string[] = [];
-      const pending: PendingCondition[] = [];
-      const give = async (holder: Character, cond: PendingCondition) => {
-        const { condition, replaced } = await applyCondition(
-          tx,
-          { characterId: holder.id },
-          { ...cond, source: ch.name },
-          delta,
-        );
-        outcome.push(
-          (holder.id === ch.id
-            ? `${ch.name} está sob ${condition.name}`
-            : `${condition.name} aplicada em ${holder.name}`) +
-            turnsLabel(condition.turnsLeft) +
-            (replaced.length ? ` (substituiu ${joinPt(replaced)})` : ''),
-        );
-      };
-      switch (ability.effect) {
-        case AbilityEffect.SUMMON: {
-          const max = ch.class.maxSummons;
-          if (max > 0 && ch.summons.length >= max) {
-            const excess = ch.summons.slice(0, ch.summons.length - max + 1);
-            for (const old of excess) {
-              delta.deletedSummon(old);
-              await tx.summon.delete({ where: { id: old.id } });
-            }
-            outcome.push(
-              `${joinPt(excess.map((s) => s.name))} ${excess.length > 1 ? 'desapareceram' : 'desapareceu'}`,
-            );
-          }
-          const hp = effect.hp ?? 10;
-          const summon = await tx.summon.create({
-            data: {
-              characterId: ch.id,
-              name: summonName || effect.name || 'Invocação',
-              hp,
-              hpMax: hp,
-            },
-          });
-          delta.created('summons', summon.id);
-          outcome.push(`surgiu ${summon.name}`);
-          break;
-        }
-
-        case AbilityEffect.SACRIFICE_SUMMON: {
-          if (!ch.summons.length) {
-            throw new BadRequestException(
-              `${ch.name} não tem nenhuma criatura para sacrificar`,
-            );
-          }
-          const victim = dto.summonId
-            ? ch.summons.find((s) => s.id === dto.summonId)
-            : ch.summons.length === 1
-              ? ch.summons[0]
-              : undefined;
-          if (!victim) {
-            throw new BadRequestException('Escolha qual criatura sacrificar');
-          }
-          delta.deletedSummon(victim);
-          await tx.summon.delete({ where: { id: victim.id } });
-          outcome.push(`${victim.name} foi sacrificada`);
-          break;
-        }
-
-        case AbilityEffect.SELF_CONDITION:
-        case AbilityEffect.TARGET_CONDITION: {
-          const holder =
-            ability.effect === AbilityEffect.SELF_CONDITION ? ch : targetChar;
-          const cond: PendingCondition = {
-            defId: effect.condition,
-            name: effect.condition ? undefined : (effect.name ?? ability.name),
-            description: effect.description,
-            exclusiveGroup: effect.exclusiveGroup,
-            turns: effect.turns,
-          };
-          if (holder) await give(holder, cond);
-          else pending.push(cond); // o mestre escolhe em quem cai
-          break;
+        if (open) {
+          throw new BadRequestException(
+            `${ch.name} já tem uma ação aguardando o mestre`,
+          );
         }
       }
 
-      // Crítico que aplica condição
-      if (crit?.condition) {
-        const cond: PendingCondition = {
-          defId: crit.condition,
-          turns: crit.turns,
+      // a mana sai na declaração; o Tecelão também acumula instabilidade e,
+      // no limite, o tempo rompe em paradoxo e ela volta a zero (numa só
+      // alteração, para o desfazer devolver o valor de antes)
+      const delta = new DeltaBuilder();
+      const temporal = ch.classId === INSTABILITY_CLASS;
+      const paradox = temporal && ch.instability + 1 >= INSTABILITY_LIMIT;
+      await applyStats(
+        tx,
+        ch,
+        {
+          mana: -ability.manaCost,
+          instability: !temporal ? 0 : paradox ? -ch.instability : 1,
+        },
+        delta,
+      );
+
+      const label = !target
+        ? ''
+        : ` em ${target.kind === 'self' ? 'si mesmo' : target.name}`;
+      const cost = ability.manaCost ? ` (−${ability.manaCost} mana)` : '';
+      const said = dto.note ? ` — "${dto.note}"` : '';
+      const burst = paradox
+        ? ` Paradoxo! O tempo se rasga ao redor de ${ch.name}.`
+        : '';
+
+      if (needsMaster) {
+        const action: PendingAction = {
+          characterId: ch.id,
+          characterName: ch.name,
+          abilityId: ability.id,
+          abilityName: ability.name,
+          manaCost: ability.manaCost,
+          target,
+          needsRoll,
+          dealsDamage: ability.dealsDamage,
+          ...(dto.note ? { note: dto.note } : {}),
+          ...(dto.summonId ? { summonId: dto.summonId } : {}),
         };
-        const holder = crit.on === 'self' ? ch : targetChar;
-        if (holder) await give(holder, cond);
-        else pending.push(cond);
+        return writeLog(tx, {
+          campaignId: ch.campaignId,
+          actorUserId: user.id,
+          characterId: ch.id,
+          type: LogType.ABILITY_USED,
+          message: `${ch.name} usa ${ability.name}${label}${cost}${said}.${burst}`,
+          delta,
+          pendingAction: action,
+        });
       }
 
-      if (pending.length) {
-        const names: string[] = [];
-        for (const p of pending) {
-          const def = p.defId
-            ? await tx.conditionDef.findUnique({ where: { id: p.defId } })
-            : null;
-          names.push(p.name ?? def?.name ?? p.defId ?? '?');
-        }
-        outcome.push(`aguardando o mestre aplicar ${joinPt(names)}`);
-      }
-
-      let message = `${ch.name} usou ${ability.name}`;
-      if (targetLabel) message += ` em ${targetLabel}`;
-      if (ability.manaCost) message += ` (−${ability.manaCost} mana)`;
-      if (roll !== null) message += ` · d20: ${roll}`;
-      if (crit) message += ` → ${crit.text}`;
-      if (outcome.length) message += `. ${joinPt(outcome)}.`;
-
+      const done = await this.performAbility(tx, {
+        ch,
+        ability,
+        target,
+        roll: null,
+        summonId: dto.summonId,
+        delta,
+      });
       return writeLog(tx, {
         campaignId: ch.campaignId,
         actorUserId: user.id,
         characterId: ch.id,
         type: LogType.ABILITY_USED,
-        message,
-        roll,
+        message: `${ch.name} usou ${ability.name}${label}${cost}${said}${done.public}${burst}`,
+        masterMessage: `${ch.name} usou ${ability.name}${label}${cost}${said}${done.master}${burst}`,
         delta,
-        pendingEffect: { source: ch.name, conditions: pending },
+        pendingEffect: { source: ch.name, conditions: done.pending },
       });
     });
+  }
+
+  /** O mestre digita o d20 (ou só confirma) e a ação declarada acontece. */
+  async resolveAction(logId: string, dto: ResolveActionDto, user: AuthUser) {
+    const { entry, action } = await this.actionCtx(logId, user);
+    const campaignId = entry.campaignId;
+    if (action.needsRoll && dto.roll === undefined) {
+      throw new BadRequestException('Informe o d20 (1 a 20)');
+    }
+    const roll = action.needsRoll ? (dto.roll ?? null) : null;
+
+    const result = await this.run(campaignId, async (tx) => {
+      const ch = await tx.character.findFirst({
+        where: { id: action.characterId, campaignId },
+        include: {
+          class: true,
+          summons: {
+            orderBy: { createdAt: 'asc' },
+            include: { conditions: true },
+          },
+        },
+      });
+      const ability = await tx.ability.findUnique({
+        where: { id: action.abilityId },
+      });
+      if (!ch || !ability) {
+        throw new BadRequestException(
+          'O personagem ou a habilidade não existem mais: negue a ação',
+        );
+      }
+
+      // pega a ação primeiro: se outro clique já resolveu, para aqui
+      const claimed = await tx.logEntry.updateMany({
+        where: {
+          id: logId,
+          revertedAt: null,
+          pendingAction: { not: Prisma.DbNull },
+        },
+        data: { pendingAction: Prisma.DbNull, delta: Prisma.DbNull },
+      });
+      if (!claimed.count) {
+        throw new BadRequestException('Essa ação não está mais pendente');
+      }
+      const delta = new DeltaBuilder();
+      delta.clearedAction(logId, action, entry.delta);
+
+      const done = await this.performAbility(tx, {
+        ch,
+        ability,
+        target: action.target,
+        roll,
+        summonName: dto.summonName,
+        summonId: action.summonId,
+        delta,
+      });
+      const label = !action.target
+        ? ''
+        : ` em ${action.target.kind === 'self' ? 'si mesmo' : action.target.name}`;
+      const said = action.note ? ` — "${action.note}"` : '';
+      const head = `${ch.name} usou ${ability.name}${label}${said}`;
+      return writeLog(tx, {
+        campaignId,
+        actorUserId: user.id,
+        characterId: ch.id,
+        type: LogType.ABILITY_USED,
+        message: `${head}${done.public}`,
+        masterMessage: `${head}${done.master}`,
+        roll,
+        delta,
+        pendingEffect: { source: ch.name, conditions: done.pending },
+      });
+    });
+    await this.realtime.logUpdated(campaignId, logId);
+    return result;
+  }
+
+  /** O mestre nega a ação declarada: a mana volta e nada acontece. */
+  async denyAction(logId: string, user: AuthUser) {
+    const { entry, action } = await this.actionCtx(logId, user);
+    const campaignId = entry.campaignId;
+    const result = await this.run(campaignId, async (tx) => {
+      const marked = await tx.logEntry.updateMany({
+        where: {
+          id: logId,
+          revertedAt: null,
+          pendingAction: { not: Prisma.DbNull },
+        },
+        data: { pendingAction: Prisma.DbNull, revertedAt: new Date() },
+      });
+      if (!marked.count) {
+        throw new BadRequestException('Essa ação não está mais pendente');
+      }
+      if (entry.delta) await revertDelta(tx, entry.delta as Delta);
+      const label = !action.target
+        ? ''
+        : ` em ${action.target.kind === 'self' ? 'si mesmo' : action.target.name}`;
+      return writeLog(tx, {
+        campaignId,
+        actorUserId: user.id,
+        characterId: action.characterId,
+        type: LogType.NOTE,
+        message: `${action.characterName} não consegue usar ${action.abilityName}${label}${action.manaCost ? ' (a mana volta)' : ''}`,
+      });
+    });
+    await this.realtime.logUpdated(campaignId, logId);
+    return result;
+  }
+
+  private async actionCtx(logId: string, user: AuthUser) {
+    const entry = await this.prisma.logEntry.findUnique({
+      where: { id: logId },
+    });
+    if (!entry) throw new NotFoundException('Registro não encontrado');
+    const campaign = await this.activeCampaign(entry.campaignId, user);
+    if (!isCampaignMaster(campaign, user)) {
+      throw new ForbiddenException('Só o mestre resolve ações');
+    }
+    const action = entry.pendingAction as unknown as PendingAction | null;
+    if (!action || entry.revertedAt) {
+      throw new BadRequestException('Essa ação não está mais pendente');
+    }
+    return { entry, action };
+  }
+
+  /** Confere o alvo declarado e o devolve com o nome, ou null se a habilidade não usa alvo. */
+  private async resolveTarget(
+    tx: Tx,
+    ch: Character,
+    ability: Ability,
+    t?: ActionTargetDto,
+  ): Promise<ActionTarget | null> {
+    const own =
+      ability.effect === AbilityEffect.SUMMON ||
+      ability.effect === AbilityEffect.SACRIFICE_SUMMON ||
+      ability.effect === AbilityEffect.SELF_CONDITION;
+    if (own && !ability.dealsDamage) return null;
+
+    const required =
+      ability.dealsDamage || ability.effect === AbilityEffect.TARGET_CONDITION;
+    if (!t) {
+      if (required) throw new BadRequestException('Escolha o alvo');
+      return null;
+    }
+    if (ability.dealsDamage && t.kind !== 'npc') {
+      throw new BadRequestException(
+        'Esse ataque precisa de um inimigo como alvo',
+      );
+    }
+    if (t.kind === 'self') return { kind: 'self', id: ch.id, name: ch.name };
+    if (t.kind === 'character') {
+      const c = await tx.character.findFirst({
+        where: { id: t.id ?? '', campaignId: ch.campaignId },
+      });
+      if (!c) throw new BadRequestException('Alvo não está nesta campanha');
+      return c.id === ch.id
+        ? { kind: 'self', id: c.id, name: c.name }
+        : { kind: 'character', id: c.id, name: c.name };
+    }
+    const n = await tx.npc.findFirst({
+      where: { id: t.id ?? '', campaignId: ch.campaignId },
+    });
+    if (!n) throw new BadRequestException('Alvo não está nesta campanha');
+    return { kind: 'npc', id: n.id, name: n.name };
+  }
+
+  private pickVictim(ch: CharacterFull, summonId?: string) {
+    if (!ch.summons.length) {
+      throw new BadRequestException(
+        `${ch.name} não tem nenhuma criatura para sacrificar`,
+      );
+    }
+    const victim = summonId
+      ? ch.summons.find((s) => s.id === summonId)
+      : ch.summons.length === 1
+        ? ch.summons[0]
+        : undefined;
+    if (!victim) {
+      throw new BadRequestException('Escolha qual criatura sacrificar');
+    }
+    return victim;
+  }
+
+  /**
+   * Faz a habilidade acontecer: dano (o d20 é o dano), crítico e o efeito
+   * automático. Devolve o que vai no fim da frase do log, na versão do mestre
+   * (com números) e na pública (narrada).
+   */
+  private async performAbility(
+    tx: Tx,
+    p: {
+      ch: CharacterFull;
+      ability: Ability;
+      target: ActionTarget | null;
+      roll: number | null;
+      summonName?: string;
+      summonId?: string;
+      delta: DeltaBuilder;
+    },
+  ) {
+    const { ch, ability, target, roll, delta } = p;
+    const crit =
+      roll === null
+        ? undefined
+        : ((ability.crits as Crit[] | null) ?? []).find(
+            (c) => roll >= c.min && roll <= c.max,
+          );
+
+    // quem recebe uma condição: o alvo declarado, ou quem usou
+    const holderOf = (t: ActionTarget | null) =>
+      !t
+        ? null
+        : t.kind === 'npc'
+          ? { holder: { npcId: t.id } as Holder, name: t.name, self: false }
+          : {
+              holder: { characterId: t.id } as Holder,
+              name: t.name,
+              self: t.id === ch.id,
+            };
+    const myself = holderOf({ kind: 'self', id: ch.id, name: ch.name });
+
+    // dano: o d20 é o dano
+    let masterDamage = '';
+    let publicDamage = '';
+    if (ability.dealsDamage && roll !== null && target?.kind === 'npc') {
+      const npc = await tx.npc.findUnique({ where: { id: target.id } });
+      if (!npc) throw new BadRequestException('O alvo saiu de cena');
+      const hp = clamp(npc.hp - roll, 0, npc.hpMax);
+      delta.npcHp(npc.id, hp - npc.hp);
+      await tx.npc.update({ where: { id: npc.id }, data: { hp } });
+      masterDamage = ` → ${roll} de dano em ${npc.name} (vida ${hp}/${npc.hpMax})${hp === 0 ? ' — caiu!' : ''}`;
+      publicDamage = ` — ${npc.name} foi atingido — ${BAND_NARRATION[healthBand(hp, npc.hpMax)]}`;
+    }
+
+    // efeito automático
+    const effect = (ability.effectData ?? {}) as EffectData;
+    const outcome: string[] = [];
+    const pending: PendingCondition[] = [];
+    const give = async (
+      who: NonNullable<ReturnType<typeof holderOf>>,
+      cond: PendingCondition,
+    ) => {
+      const { condition, replaced } = await applyCondition(
+        tx,
+        who.holder,
+        { ...cond, source: ch.name },
+        delta,
+      );
+      outcome.push(
+        (who.self
+          ? `${ch.name} está sob ${condition.name}`
+          : `${condition.name} aplicada em ${who.name}`) +
+          turnsLabel(condition.turnsLeft) +
+          (replaced.length ? ` (substituiu ${joinPt(replaced)})` : ''),
+      );
+    };
+    switch (ability.effect) {
+      case AbilityEffect.SUMMON: {
+        const max = ch.class.maxSummons;
+        if (max > 0 && ch.summons.length >= max) {
+          const excess = ch.summons.slice(0, ch.summons.length - max + 1);
+          for (const old of excess) {
+            delta.deletedSummon(old);
+            await tx.summon.delete({ where: { id: old.id } });
+          }
+          outcome.push(
+            `${joinPt(excess.map((s) => s.name))} ${excess.length > 1 ? 'desapareceram' : 'desapareceu'}`,
+          );
+        }
+        const hp = effect.hp ?? 10;
+        const summon = await tx.summon.create({
+          data: {
+            characterId: ch.id,
+            name: p.summonName || effect.name || 'Invocação',
+            hp,
+            hpMax: hp,
+          },
+        });
+        delta.created('summons', summon.id);
+        outcome.push(`surgiu ${summon.name}`);
+        break;
+      }
+
+      case AbilityEffect.SACRIFICE_SUMMON: {
+        const victim = this.pickVictim(ch, p.summonId);
+        delta.deletedSummon(victim);
+        await tx.summon.delete({ where: { id: victim.id } });
+        outcome.push(`${victim.name} foi sacrificada`);
+        break;
+      }
+
+      case AbilityEffect.SELF_CONDITION:
+      case AbilityEffect.TARGET_CONDITION: {
+        const who =
+          ability.effect === AbilityEffect.SELF_CONDITION
+            ? myself
+            : holderOf(target);
+        const cond: PendingCondition = {
+          defId: effect.condition,
+          name: effect.condition ? undefined : (effect.name ?? ability.name),
+          description: effect.description,
+          exclusiveGroup: effect.exclusiveGroup,
+          turns: effect.turns,
+        };
+        if (who) await give(who, cond);
+        else pending.push(cond); // o mestre escolhe em quem cai
+        break;
+      }
+    }
+
+    // crítico que aplica condição
+    if (crit?.condition) {
+      const cond: PendingCondition = {
+        defId: crit.condition,
+        turns: crit.turns,
+      };
+      const who = crit.on === 'self' ? myself : holderOf(target);
+      if (who) await give(who, cond);
+      else pending.push(cond);
+    }
+
+    if (pending.length) {
+      const names: string[] = [];
+      for (const c of pending) {
+        const def = c.defId
+          ? await tx.conditionDef.findUnique({ where: { id: c.defId } })
+          : null;
+        names.push(c.name ?? def?.name ?? c.defId ?? '?');
+      }
+      outcome.push(`aguardando o mestre aplicar ${joinPt(names)}`);
+    }
+
+    const critText = crit ? ` → ${crit.text}` : '';
+    const tail = outcome.length ? `. ${joinPt(outcome)}.` : '';
+    return {
+      master: `${roll !== null ? ` · d20: ${roll}` : ''}${masterDamage}${critText}${tail}`,
+      public: `${publicDamage}${critText}${tail}`,
+      pending,
+    };
   }
 
   // ───────────────────────── vida / mana / XP ─────────────────────────
@@ -307,7 +603,12 @@ export class GameService {
         where: { id: characterId },
       });
       const delta = new DeltaBuilder();
-      const { character: after } = await applyStats(tx, ch, req, delta);
+      const { character: after, applied } = await applyStats(
+        tx,
+        ch,
+        req,
+        delta,
+      );
 
       const parts: string[] = [];
       if (req.hp < 0) parts.push(`recebeu ${-req.hp} de dano`);
@@ -316,8 +617,16 @@ export class GameService {
       if (req.mana > 0) parts.push(`recuperou ${req.mana} de mana`);
       if (req.xp > 0) parts.push(`ganhou ${req.xp} de XP`);
       if (req.xp < 0) parts.push(`perdeu ${-req.xp} de XP`);
-      if (req.level > 0) parts.push(`subiu para o nível ${after.level}`);
-      if (req.level < 0) parts.push(`voltou para o nível ${after.level}`);
+      if (req.level > 0) {
+        parts.push(
+          `subiu para o nível ${after.level} (vida máxima +${applied.hpMax})`,
+        );
+      }
+      if (req.level < 0) {
+        parts.push(
+          `voltou para o nível ${after.level} (vida máxima −${-applied.hpMax})`,
+        );
+      }
 
       const status: string[] = [];
       if (req.hp) status.push(`vida ${after.hp}/${after.hpMax}`);
@@ -871,7 +1180,7 @@ export class GameService {
       // Marca primeiro, condicionado a ainda não ter sido desfeito (evita desfazer 2×).
       const marked = await tx.logEntry.updateMany({
         where: { id: logId, revertedAt: null },
-        data: { revertedAt: new Date() },
+        data: { revertedAt: new Date(), pendingAction: Prisma.DbNull },
       });
       if (!marked.count) {
         throw new BadRequestException('Esse registro já foi desfeito');
@@ -883,6 +1192,9 @@ export class GameService {
         characterId: entry.characterId,
         type: LogType.NOTE,
         message: `Desfeito: ${entry.message}`,
+        masterMessage: entry.masterMessage
+          ? `Desfeito: ${entry.masterMessage}`
+          : null,
       });
     });
     this.realtime.emitLogReverted(entry.campaignId, logId);
