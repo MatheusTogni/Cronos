@@ -9,16 +9,9 @@
     "mechanicText": "Quanto maior o risco, maior o possível benefício.",
     "baseHp": 30,
     "baseMana": 10,
-    "maxSummons": 0,
     "color": "#a83232",
     "artFile": "/classes/apostador.png",
     "abilities": [
-      {
-        "kind": "BASIC",
-        "name": "Cara ou Coroa",
-        "manaCost": 0,
-        "description": "Pequeno efeito aleatório: vantagem ou complicação."
-      },
       {
         "kind": "SKILL",
         "name": "Blefe",
@@ -29,7 +22,6 @@
         "kind": "SKILL",
         "name": "Tudo ou Nada",
         "manaCost": 2,
-        "prompt": "O que você aposta?",
         "description": "O Apostador aposta algo importante:\n• vida\n• posição\n• recurso\nSe der certo: recebe enorme vantagem.\nSe falhar: sofre consequência forte."
       },
       {
@@ -50,23 +42,15 @@
     "mechanicText": "Quanto mais ferido ou assustado o alvo estiver, mais vulnerável fica ao Carrasco.",
     "baseHp": 30,
     "baseMana": 10,
-    "maxSummons": 0,
     "color": "#9b2c2c",
     "artFile": "/classes/carrasco.png",
     "abilities": [
-      {
-        "kind": "BASIC",
-        "name": "Golpe Pesado",
-        "manaCost": 0,
-        "dealsDamage": true,
-        "description": "Ataque brutal e lento.\nPode deixar o alvo hesitante."
-      },
       {
         "kind": "SKILL",
         "name": "Gancho de Corrente",
         "manaCost": 1,
         "description": "Puxa ou desequilibra alguém.",
-        "crits": [{ "min": 18, "max": 20, "text": "derruba ou prende momentaneamente.", "condition": "derrubado", "turns": 1 }]
+        "crits": [{ "min": 18, "max": 20, "text": "derruba ou prende momentaneamente." }]
       },
       {
         "kind": "SKILL",
@@ -78,11 +62,10 @@
         "kind": "SKILL",
         "name": "Execução",
         "manaCost": 4,
-        "dealsDamage": true,
         "description": "Golpe devastador contra alvo vulnerável.",
         "crits": [
-          { "min": 18, "max": 18, "text": "causa terror", "condition": "amedrontado", "turns": 2 },
-          { "min": 19, "max": 19, "text": "incapacita momentaneamente", "condition": "incapacitado", "turns": 1 },
+          { "min": 18, "max": 18, "text": "causa terror" },
+          { "min": 19, "max": 19, "text": "incapacita momentaneamente" },
           { "min": 20, "max": 20, "text": "execução brutal instantânea em alvo extremamente fraco" }
         ]
       }
@@ -98,24 +81,15 @@
     "mechanicText": "Quanto mais ferido estiver:\n• mais perigoso se torna\n• ataques ficam mais violentos\n• ignora parte da dor",
     "baseHp": 30,
     "baseMana": 10,
-    "maxSummons": 0,
     "color": "#d04a3a",
     "artFile": "/classes/cacador.png",
     "abilities": [
       {
-        "kind": "BASIC",
-        "name": "Golpe Serrilhado",
-        "manaCost": 0,
-        "dealsDamage": true,
-        "description": "Ataque rápido corpo a corpo.\nFica mais forte contra alvos já feridos."
-      },
-      {
         "kind": "SKILL",
         "name": "Passo Predatório",
         "manaCost": 1,
-        "dealsDamage": true,
         "description": "Avança instantaneamente até o alvo e ataca.",
-        "crits": [{ "min": 18, "max": 20, "text": "deixa o alvo desequilibrado.", "condition": "desequilibrado", "turns": 1 }]
+        "crits": [{ "min": 18, "max": 20, "text": "deixa o alvo desequilibrado." }]
       },
       {
         "kind": "SKILL",
@@ -123,18 +97,16 @@
         "manaCost": 2,
         "description": "Disparo rápido para atrapalhar ações.",
         "crits": [
-          { "min": 18, "max": 18, "text": "interrompe movimento", "condition": "preso", "turns": 1 },
+          { "min": 18, "max": 18, "text": "interrompe movimento" },
           { "min": 19, "max": 19, "text": "cancela habilidade" },
-          { "min": 20, "max": 20, "text": "alvo trava de medo/dor", "condition": "incapacitado", "turns": 1 }
+          { "min": 20, "max": 20, "text": "alvo trava de medo/dor" }
         ]
       },
       {
         "kind": "SKILL",
         "name": "Lua Rubra",
         "manaCost": 4,
-        "description": "O Caçador entra em Frenesi e assume uma forma bestial semelhante a um lobisomem:\n• mais rápido\n• mais agressivo\n• ignora dor\nPorém: toma dano a cada turno enquanto permanecer transformado.",
-        "effect": "SELF_CONDITION",
-        "effectData": { "condition": "lua-rubra" }
+        "description": "O Caçador entra em Frenesi e assume uma forma bestial semelhante a um lobisomem:\n• mais rápido\n• mais agressivo\n• ignora dor\nPorém: toma dano a cada turno enquanto permanecer transformado."
       }
     ]
   },
@@ -148,24 +120,15 @@
     "mechanicText": "Cada alvo só pode carregar 1 máscara ativa.\nAs máscaras podem ser usadas:\n• em aliados\n• em inimigos\n• no próprio Mascareiro\nTrocar máscara substitui a anterior.",
     "baseHp": 30,
     "baseMana": 10,
-    "maxSummons": 0,
     "color": "#c9a227",
     "artFile": "/classes/mascareiro.png",
     "abilities": [
-      {
-        "kind": "BASIC",
-        "name": "Rosto Vazio",
-        "manaCost": 0,
-        "description": "O alvo hesita ao encarar a máscara sem expressão."
-      },
       {
         "kind": "SKILL",
         "name": "Máscara da Serenidade",
         "manaCost": 1,
         "description": "O alvo sente uma calma sobrenatural.\nEm aliados: reduz medo, melhora foco, alivia ferimentos leves.\nEm inimigos: reduz agressividade, dificulta ações impulsivas.",
-        "crits": [{ "min": 18, "max": 20, "text": "remove uma condição negativa ou impede alguém de cair momentaneamente." }],
-        "effect": "TARGET_CONDITION",
-        "effectData": { "condition": "mascara-da-serenidade" }
+        "crits": [{ "min": 18, "max": 20, "text": "remove uma condição negativa ou impede alguém de cair momentaneamente." }]
       },
       {
         "kind": "SKILL",
@@ -173,20 +136,16 @@
         "manaCost": 2,
         "description": "Desperta brutalidade.\nEm aliados: mais agressivos, ignoram hesitação.\nEm inimigos: imprudência, perda de controle.",
         "crits": [
-          { "min": 18, "max": 18, "text": "alvo entra em frenesi", "condition": "frenesi" },
-          { "min": 19, "max": 19, "text": "ignora dor", "condition": "ignora-dor" },
+          { "min": 18, "max": 18, "text": "alvo entra em frenesi" },
+          { "min": 19, "max": 19, "text": "ignora dor" },
           { "min": 20, "max": 20, "text": "perde o autocontrole" }
-        ],
-        "effect": "TARGET_CONDITION",
-        "effectData": { "condition": "mascara-do-carrasco" }
+        ]
       },
       {
         "kind": "SKILL",
         "name": "Máscara Vazia",
         "manaCost": 4,
-        "description": "Apaga parte da presença do alvo.\nEm aliados: difíceis de perceber.\nEm inimigos: confusão, perda de identidade, dificuldade de reconhecer aliados.",
-        "effect": "TARGET_CONDITION",
-        "effectData": { "condition": "mascara-vazia" }
+        "description": "Apaga parte da presença do alvo.\nEm aliados: difíceis de perceber.\nEm inimigos: confusão, perda de identidade, dificuldade de reconhecer aliados."
       }
     ]
   },
@@ -200,16 +159,9 @@
     "mechanicText": "O Mercador sempre tenta transformar desvantagem em vantagem.\nPode:\n• trocar condições\n• enganar\n• negociar durante combate",
     "baseHp": 30,
     "baseMana": 10,
-    "maxSummons": 0,
     "color": "#a8452f",
     "artFile": "/classes/mercador.png",
     "abilities": [
-      {
-        "kind": "BASIC",
-        "name": "Mãos Leves",
-        "manaCost": 0,
-        "description": "Rouba ou move pequenos objetos rapidamente."
-      },
       {
         "kind": "SKILL",
         "name": "Oferta Irrecusável",
@@ -226,9 +178,7 @@
         "kind": "SKILL",
         "name": "Dívida",
         "manaCost": 4,
-        "description": "Marca alguém com uma “dívida”.\nQuanto mais o alvo ignora ou enfrenta o Mercador, pior a situação fica pra ele.",
-        "effect": "TARGET_CONDITION",
-        "effectData": { "condition": "divida" }
+        "description": "Marca alguém com uma “dívida”.\nQuanto mais o alvo ignora ou enfrenta o Mercador, pior a situação fica pra ele."
       }
     ]
   },
@@ -242,17 +192,9 @@
     "mechanicText": "Pode manter 1 criatura morta revivida ativa.\nA criatura:\n• depende do cadáver usado\n• acompanha o Necromante\n• desaparece ao invocar outra",
     "baseHp": 30,
     "baseMana": 10,
-    "maxSummons": 1,
     "color": "#9466d6",
     "artFile": "/classes/necromante.png",
     "abilities": [
-      {
-        "kind": "BASIC",
-        "name": "Toque Fúnebre",
-        "manaCost": 0,
-        "dealsDamage": true,
-        "description": "Ataque sombrio fortalecido pela presença da morte."
-      },
       {
         "kind": "SKILL",
         "name": "Reanimar",
@@ -262,23 +204,20 @@
           { "min": 18, "max": 18, "text": "revive fortalecida" },
           { "min": 19, "max": 19, "text": "revive parcialmente consciente" },
           { "min": 20, "max": 20, "text": "revive monstruosa/corrompida" }
-        ],
-        "effect": "SUMMON",
-        "effectData": { "name": "Criatura reanimada", "hp": 10 }
+        ]
       },
       {
         "kind": "SKILL",
         "name": "Voz dos Mortos",
         "manaCost": 3,
         "description": "Sussurros perturbam inimigos:\n• medo\n• distração\n• hesitação",
-        "crits": [{ "min": 18, "max": 20, "text": "causa pânico ou descontrole.", "condition": "em-panico", "turns": 1 }]
+        "crits": [{ "min": 18, "max": 20, "text": "causa pânico ou descontrole." }]
       },
       {
         "kind": "SKILL",
         "name": "Sacrifício Macabro",
         "manaCost": 5,
-        "description": "Destrói a criatura revivida para gerar um efeito.\nO resultado depende da criatura sacrificada.",
-        "effect": "SACRIFICE_SUMMON"
+        "description": "Destrói a criatura revivida para gerar um efeito.\nO resultado depende da criatura sacrificada."
       }
     ]
   },
@@ -292,17 +231,9 @@
     "mechanicText": "Quando alguém hesita, se distrai, erra ou perde foco, a Raposa Vermelha pode:\n• se mover sem ser percebida\n• furtar algo pequeno\n• atacar melhor\n• escapar facilmente",
     "baseHp": 30,
     "baseMana": 10,
-    "maxSummons": 0,
     "color": "#c73a2e",
     "artFile": "/classes/raposa-vermelha.png",
     "abilities": [
-      {
-        "kind": "BASIC",
-        "name": "Corte Furtivo",
-        "manaCost": 0,
-        "dealsDamage": true,
-        "description": "Ataque rápido e preciso com faca curta.\nMuito mais perigoso contra alvos distraídos ou vulneráveis."
-      },
       {
         "kind": "SKILL",
         "name": "Furto Rápido",
@@ -320,9 +251,9 @@
         "manaCost": 2,
         "description": "Usa distrações rápidas: areia, faca escondida, blefe, movimento falso.\nO alvo:\n• perde foco\n• hesita\n• erra reação",
         "crits": [
-          { "min": 18, "max": 18, "text": "alvo tropeça", "condition": "derrubado" },
-          { "min": 19, "max": 19, "text": "alvo reage errado", "condition": "distraido" },
-          { "min": 20, "max": 20, "text": "cria caos momentâneo", "condition": "confuso" }
+          { "min": 18, "max": 18, "text": "alvo tropeça" },
+          { "min": 19, "max": 19, "text": "alvo reage errado" },
+          { "min": 20, "max": 20, "text": "cria caos momentâneo" }
         ]
       },
       {
@@ -332,11 +263,9 @@
         "description": "A Raposa Vermelha escolhe um alvo e entra em perseguição total:\n• movimentação extremamente rápida\n• pressão constante\n• ataques mais precisos\n• impossível ignorá-la\nDurante a perseguição: consegue furtar melhor, aparece em lugares inesperados, pune qualquer distração.\nPorém: fica mais imprudente e expõe a própria posição.",
         "crits": [
           { "min": 18, "max": 18, "text": "surge imediatamente perto do alvo" },
-          { "min": 19, "max": 19, "text": "alvo entra em desespero", "condition": "em-panico" },
+          { "min": 19, "max": 19, "text": "alvo entra em desespero" },
           { "min": 20, "max": 20, "text": "golpe perfeito em ponto vital" }
-        ],
-        "effect": "SELF_CONDITION",
-        "effectData": { "condition": "cacada-escarlate" }
+        ]
       }
     ]
   },
@@ -350,25 +279,14 @@
     "mechanicText": "Percebe falhas e fraquezas antes dos outros.\nAlvos marcados pelo Rasga-Véus:\n• ficam mais vulneráveis\n• têm sentidos distorcidos\n• sofrem efeitos ampliados",
     "baseHp": 30,
     "baseMana": 10,
-    "maxSummons": 0,
     "color": "#3fb8a9",
     "artFile": "/classes/rasga-veus.png",
     "abilities": [
       {
-        "kind": "BASIC",
-        "name": "Olhar Distante",
-        "manaCost": 0,
-        "description": "Marca um alvo ao enxergar além de sua aparência.",
-        "effect": "TARGET_CONDITION",
-        "effectData": { "condition": "marcado-pelo-pressagio" }
-      },
-      {
         "kind": "SKILL",
         "name": "Surdez Voluntária",
         "manaCost": 1,
-        "description": "Remove temporariamente a audição de alguém.\nPode:\n• proteger contra sons\n• causar desorientação\n• impedir distrações",
-        "effect": "TARGET_CONDITION",
-        "effectData": { "condition": "surdo" }
+        "description": "Remove temporariamente a audição de alguém.\nPode:\n• proteger contra sons\n• causar desorientação\n• impedir distrações"
       },
       {
         "kind": "SKILL",
@@ -381,7 +299,7 @@
         "name": "Roubo Sensorial",
         "manaCost": 4,
         "description": "Rouba temporariamente um sentido:\n• visão\n• audição\n• equilíbrio",
-        "crits": [{ "min": 18, "max": 20, "text": "o alvo perde completamente a noção do ambiente.", "condition": "confuso", "turns": 2 }]
+        "crits": [{ "min": 18, "max": 20, "text": "o alvo perde completamente a noção do ambiente." }]
       }
     ]
   },
@@ -395,26 +313,18 @@
     "mechanicText": "Quanto mais usa magia temporal:\n• mais fortes ficam os efeitos\n• maior o risco de paradoxos",
     "baseHp": 30,
     "baseMana": 10,
-    "maxSummons": 0,
     "color": "#3d8bd9",
     "artFile": "/classes/tecelao-do-tempo.png",
     "abilities": [
-      {
-        "kind": "BASIC",
-        "name": "Estilhaço Temporal",
-        "manaCost": 0,
-        "dealsDamage": true,
-        "description": "Ataque mágico que desacelera o alvo levemente."
-      },
       {
         "kind": "SKILL",
         "name": "Dilatação",
         "manaCost": 1,
         "description": "O alvo sente o tempo desacelerar.",
         "crits": [
-          { "min": 18, "max": 18, "text": "hesita", "condition": "hesitante" },
-          { "min": 19, "max": 19, "text": "quase para", "condition": "lento" },
-          { "min": 20, "max": 20, "text": "tempo congela brevemente", "condition": "congelado-no-tempo" }
+          { "min": 18, "max": 18, "text": "hesita" },
+          { "min": 19, "max": 19, "text": "quase para" },
+          { "min": 20, "max": 20, "text": "tempo congela brevemente" }
         ]
       },
       {
@@ -424,8 +334,8 @@
         "description": "Um aliado se move além do normal.",
         "crits": [
           { "min": 18, "max": 18, "text": "movimento perfeito" },
-          { "min": 19, "max": 19, "text": "ação extra rápida", "condition": "acelerado" },
-          { "min": 20, "max": 20, "text": "age antes dos outros", "condition": "acelerado" }
+          { "min": 19, "max": 19, "text": "ação extra rápida" },
+          { "min": 20, "max": 20, "text": "age antes dos outros" }
         ]
       },
       {

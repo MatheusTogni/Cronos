@@ -15,13 +15,16 @@ CREATE TYPE "CampaignStatus" AS ENUM ('DRAFT', 'LOBBY', 'ACTIVE', 'ENDED');
 CREATE TYPE "AbilityKind" AS ENUM ('BASIC', 'SKILL');
 
 -- CreateEnum
-CREATE TYPE "AbilityEffect" AS ENUM ('SUMMON', 'SACRIFICE_SUMMON', 'SELF_CONDITION', 'TARGET_CONDITION');
-
--- CreateEnum
 CREATE TYPE "LogType" AS ENUM ('DAMAGE', 'HEAL', 'MANA', 'XP', 'LEVEL', 'ABILITY_USED', 'DICE_ROLL', 'CONDITION_ADDED', 'CONDITION_REMOVED', 'SUMMON_CREATED', 'SUMMON_REMOVED', 'SUMMON_UPDATED', 'ITEM_ADDED', 'ITEM_REMOVED', 'ITEM_UPDATED', 'CAMPAIGN', 'NOTE', 'TURN', 'NPC_CREATED', 'NPC_UPDATED', 'NPC_REMOVED');
 
 -- CreateEnum
 CREATE TYPE "ConditionPolarity" AS ENUM ('BUFF', 'DEBUFF', 'NEUTRAL');
+
+-- CreateEnum
+CREATE TYPE "TransferKind" AS ENUM ('GIFT', 'TRADE');
+
+-- CreateEnum
+CREATE TYPE "TransferStatus" AS ENUM ('PENDING', 'ACCEPTED', 'DECLINED', 'CANCELLED');
 
 -- CreateTable
 CREATE TABLE "users" (
@@ -52,6 +55,7 @@ CREATE TABLE "campaigns" (
     "round" INTEGER NOT NULL DEFAULT 0,
     "turnIndex" INTEGER NOT NULL DEFAULT 0,
     "turnOrder" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "shopOpen" BOOLEAN NOT NULL DEFAULT false,
 
     CONSTRAINT "campaigns_pkey" PRIMARY KEY ("id")
 );
@@ -77,7 +81,6 @@ CREATE TABLE "character_classes" (
     "mechanicText" TEXT NOT NULL,
     "baseHp" INTEGER NOT NULL,
     "baseMana" INTEGER NOT NULL,
-    "maxSummons" INTEGER NOT NULL DEFAULT 0,
     "color" TEXT NOT NULL,
     "artFile" TEXT NOT NULL,
     "sortOrder" INTEGER NOT NULL DEFAULT 0,
@@ -92,12 +95,8 @@ CREATE TABLE "abilities" (
     "kind" "AbilityKind" NOT NULL,
     "name" TEXT NOT NULL,
     "manaCost" INTEGER NOT NULL DEFAULT 0,
-    "dealsDamage" BOOLEAN NOT NULL DEFAULT false,
-    "prompt" TEXT,
     "description" TEXT NOT NULL,
     "crits" JSONB,
-    "effect" "AbilityEffect",
-    "effectData" JSONB,
     "sortOrder" INTEGER NOT NULL DEFAULT 0,
 
     CONSTRAINT "abilities_pkey" PRIMARY KEY ("id")
@@ -116,7 +115,7 @@ CREATE TABLE "characters" (
     "hpMax" INTEGER NOT NULL,
     "mana" INTEGER NOT NULL,
     "manaMax" INTEGER NOT NULL,
-    "instability" INTEGER NOT NULL DEFAULT 0,
+    "gold" INTEGER NOT NULL DEFAULT 0,
     "notes" TEXT NOT NULL DEFAULT '',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -156,10 +155,6 @@ CREATE TABLE "condition_defs" (
     "name" TEXT NOT NULL,
     "description" TEXT NOT NULL,
     "polarity" "ConditionPolarity" NOT NULL DEFAULT 'NEUTRAL',
-    "turns" INTEGER,
-    "hpPerTurn" INTEGER NOT NULL DEFAULT 0,
-    "skipsTurn" BOOLEAN NOT NULL DEFAULT false,
-    "exclusiveGroup" TEXT,
     "sortOrder" INTEGER NOT NULL DEFAULT 0,
 
     CONSTRAINT "condition_defs_pkey" PRIMARY KEY ("id")
@@ -175,12 +170,7 @@ CREATE TABLE "conditions" (
     "name" TEXT NOT NULL,
     "description" TEXT,
     "source" TEXT,
-    "exclusiveGroup" TEXT,
-    "duration" TEXT,
     "polarity" "ConditionPolarity" NOT NULL DEFAULT 'NEUTRAL',
-    "turnsLeft" INTEGER,
-    "hpPerTurn" INTEGER NOT NULL DEFAULT 0,
-    "skipsTurn" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "conditions_pkey" PRIMARY KEY ("id")
@@ -193,9 +183,31 @@ CREATE TABLE "inventory_items" (
     "name" TEXT NOT NULL,
     "qty" INTEGER NOT NULL DEFAULT 1,
     "description" TEXT,
+    "code" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "inventory_items_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "transfers" (
+    "id" TEXT NOT NULL,
+    "campaignId" TEXT NOT NULL,
+    "fromId" TEXT NOT NULL,
+    "toId" TEXT NOT NULL,
+    "kind" "TransferKind" NOT NULL,
+    "status" "TransferStatus" NOT NULL DEFAULT 'PENDING',
+    "giveItemId" TEXT,
+    "giveName" TEXT,
+    "giveQty" INTEGER NOT NULL DEFAULT 1,
+    "giveGold" INTEGER NOT NULL DEFAULT 0,
+    "askItemId" TEXT,
+    "askName" TEXT,
+    "askQty" INTEGER NOT NULL DEFAULT 1,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "resolvedAt" TIMESTAMP(3),
+
+    CONSTRAINT "transfers_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -221,8 +233,6 @@ CREATE TABLE "log_entries" (
     "masterMessage" TEXT,
     "delta" JSONB,
     "roll" INTEGER,
-    "pendingEffect" JSONB,
-    "pendingAction" JSONB,
     "revertedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -243,6 +253,9 @@ CREATE UNIQUE INDEX "characters_campaignId_userId_key" ON "characters"("campaign
 
 -- CreateIndex
 CREATE INDEX "log_entries_campaignId_createdAt_idx" ON "log_entries"("campaignId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "transfers_campaignId_status_idx" ON "transfers"("campaignId", "status");
 
 -- AddForeignKey
 ALTER TABLE "campaigns" ADD CONSTRAINT "campaigns_masterId_fkey" FOREIGN KEY ("masterId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -291,6 +304,15 @@ ALTER TABLE "inventory_items" ADD CONSTRAINT "inventory_items_characterId_fkey" 
 
 -- AddForeignKey
 ALTER TABLE "campaign_images" ADD CONSTRAINT "campaign_images_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "transfers" ADD CONSTRAINT "transfers_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "transfers" ADD CONSTRAINT "transfers_fromId_fkey" FOREIGN KEY ("fromId") REFERENCES "characters"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "transfers" ADD CONSTRAINT "transfers_toId_fkey" FOREIGN KEY ("toId") REFERENCES "characters"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "log_entries" ADD CONSTRAINT "log_entries_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE;

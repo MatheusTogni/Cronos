@@ -143,7 +143,7 @@ export class NpcsService {
     const npc = await this.npcCtx(npcId, user);
     return this.run(npc.campaignId, async (tx) => {
       const delta = new DeltaBuilder();
-      const { condition, replaced } = await applyCondition(
+      const { condition } = await applyCondition(
         tx,
         { npcId },
         { ...dto, source: 'Mestre' },
@@ -153,7 +153,7 @@ export class NpcsService {
         campaignId: npc.campaignId,
         actorUserId: user.id,
         type: LogType.CONDITION_ADDED,
-        message: conditionAddedMessage(npc.name, condition, replaced),
+        message: conditionAddedMessage(npc.name, condition),
         delta,
       });
     });

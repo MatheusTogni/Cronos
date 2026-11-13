@@ -4,6 +4,7 @@ import { api } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
 import { useConfirmStore } from '@/stores/confirm'
 import type { ActionResult, Character } from '@/types/api'
+import { COMBAT_REWARD_GOLD } from '@/utils/shop'
 
 /** Mestre: liga/desliga o combate, passa o turno e ajusta a ordem. */
 const campaign = useCampaignStore()
@@ -30,7 +31,7 @@ const start = () => call('start')
 async function end() {
   const ok = await confirm.ask({
     title: 'Encerrar o combate?',
-    text: 'Os turnos param e todos voltam a agir livremente. As condições continuam nas fichas.',
+    text: `Os turnos param e todos voltam a agir livremente. As condições continuam nas fichas. Cada jogador recebe ${COMBAT_REWARD_GOLD} moedas de ouro.`,
     confirmLabel: 'Encerrar combate',
     icon: 'mdi-flag-checkered',
   })
@@ -69,13 +70,6 @@ function move(index: number, dir: -1 | 1) {
         <li v-for="(c, i) in order" :key="c.id" :class="{ current: combat.currentCharacterId === c.id, down: c.hp === 0 }">
           <span class="pos">{{ i + 1 }}</span>
           <span class="who">{{ c.name }}</span>
-          <v-icon
-            v-if="c.conditions.some((x) => x.skipsTurn)"
-            icon="mdi-pause-circle"
-            size="small"
-            color="error"
-            title="Vai perder a vez"
-          />
           <v-btn
             icon="mdi-chevron-up"
             size="x-small"

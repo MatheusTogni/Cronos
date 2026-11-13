@@ -6,13 +6,14 @@ import type { ActionResult, Character } from '@/types/api'
 
 import type { AdjustKind } from '@/types/ui'
 
-/** Ação rápida do mestre: dano, cura, mana, XP/nível. */
+/** Ação rápida do mestre: dano, cura, mana, XP/nível e ouro. */
 const props = defineProps<{ character: Character | null; kind: AdjustKind }>()
 const open = defineModel<boolean>({ required: true })
 
 const campaign = useCampaignStore()
 
 const amount = ref<number | null>(null)
+/** Mana: gastar (-) ou recuperar (+). Ouro: tirar (-) ou dar (+). */
 const manaSign = ref<'-' | '+'>('-')
 const level = ref<number | null>(null)
 const reason = ref('')
@@ -23,6 +24,7 @@ const CONFIG = {
   heal: { title: 'Curar', label: 'Vida recuperada', icon: 'mdi-heart-plus', color: 'success', quick: [1, 2, 3, 5, 10, 20] },
   mana: { title: 'Mana', label: 'Quantidade', icon: 'mdi-water', color: 'info', quick: [1, 2, 3, 5] },
   xp: { title: 'Experiência', label: 'XP ganho', icon: 'mdi-star-four-points', color: 'secondary', quick: [10, 25, 50, 100] },
+  gold: { title: 'Ouro', label: 'Moedas de ouro', icon: 'mdi-circle-multiple', color: 'warning', quick: [1, 3, 5, 10] },
 } as const
 
 const cfg = computed(() => CONFIG[props.kind])
@@ -32,7 +34,7 @@ watch(open, (isOpen) => {
   amount.value = null
   level.value = null
   reason.value = ''
-  manaSign.value = '-'
+  manaSign.value = props.kind === 'gold' ? '+' : '-' // ouro começa em "dar"
 })
 
 const preview = computed(() => {
@@ -52,6 +54,8 @@ const preview = computed(() => {
       return [n ? `XP: ${c.xp} → ${c.xp + n}` : '', level.value ? `Nível: ${c.level} → ${c.level + level.value}` : '']
         .filter(Boolean)
         .join(' · ')
+    case 'gold':
+      return `Ouro: ${c.gold} → ${Math.max(0, c.gold + (manaSign.value === '-' ? -n : n))}`
   }
   return ''
 })
@@ -64,6 +68,7 @@ async function submit() {
   if (props.kind === 'damage') body.hp = -Math.abs(n)
   if (props.kind === 'heal') body.hp = Math.abs(n)
   if (props.kind === 'mana') body.mana = manaSign.value === '-' ? -Math.abs(n) : Math.abs(n)
+  if (props.kind === 'gold') body.gold = manaSign.value === '-' ? -Math.abs(n) : Math.abs(n)
   if (props.kind === 'xp') {
     if (n) body.xp = n
     if (level.value) body.level = Math.trunc(level.value)
@@ -88,16 +93,16 @@ async function submit() {
       <v-card-text class="px-6">
         <v-form @submit.prevent="submit">
           <v-btn-toggle
-            v-if="kind === 'mana'"
+            v-if="kind === 'mana' || kind === 'gold'"
             v-model="manaSign"
             mandatory
             divided
             variant="outlined"
-            color="info"
+            :color="cfg.color"
             class="mb-3"
           >
-            <v-btn value="-">Gastar</v-btn>
-            <v-btn value="+">Recuperar</v-btn>
+            <v-btn value="-">{{ kind === 'gold' ? 'Tirar' : 'Gastar' }}</v-btn>
+            <v-btn value="+">{{ kind === 'gold' ? 'Dar' : 'Recuperar' }}</v-btn>
           </v-btn-toggle>
 
           <v-text-field

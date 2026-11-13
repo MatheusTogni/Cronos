@@ -11,7 +11,10 @@ export interface QuickField {
 }
 
 /** Ação rápida do mestre no AdjustDialog. */
-export type AdjustKind = 'damage' | 'heal' | 'mana' | 'xp'
+export type AdjustKind = 'damage' | 'heal' | 'mana' | 'xp' | 'gold'
+
+/** O que o TransferDialog oferece: dar um item, trocar um item ou dar ouro. */
+export type TransferMode = 'give' | 'trade' | 'gold'
 
 /** Quadro da FrameGallery (classes, condições). */
 export interface GalleryItem {

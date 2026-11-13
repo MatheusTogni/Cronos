@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, useId } from 'vue'
 import { POLARITY_LABEL, type ConditionDef } from '@/types/api'
-import { conditionArt, roman } from '@/utils/conditionArt'
+import { conditionArt } from '@/utils/conditionArt'
 
 /**
- * Arte de uma condição como carta arcana: duração em numeral romano no topo,
- * ícone dentro de um círculo de runas girando, nome e efeitos no rodapé.
+ * Arte de uma condição como carta arcana: tipo no topo, ícone dentro de um
+ * círculo de runas girando e o nome no rodapé.
  * Tudo em cqw, então serve tanto no quadro pequeno quanto no aberto.
  */
 const props = defineProps<{
@@ -17,7 +17,6 @@ const props = defineProps<{
 const art = computed(() => conditionArt(props.def.id, props.def.polarity))
 const pathId = `cond-ring-${useId()}`
 const inscription = computed(() => `${props.def.name.toUpperCase()} ✦ `.repeat(4))
-const turns = computed(() => (props.def.turns ? roman(props.def.turns) : '∞'))
 </script>
 
 <template>
@@ -25,8 +24,7 @@ const turns = computed(() => (props.def.turns ? roman(props.def.turns) : '∞'))
     <div class="rays" />
 
     <div class="top">
-      <span class="numeral">{{ turns }}</span>
-      <span class="turns-lbl">{{ def.turns ? (def.turns === 1 ? 'turno' : 'turnos') : 'sem prazo' }}</span>
+      <span class="numeral">{{ POLARITY_LABEL[def.polarity] }}</span>
     </div>
 
     <div class="seal">
@@ -59,14 +57,6 @@ const turns = computed(() => (props.def.turns ? roman(props.def.turns) : '∞'))
 
     <div class="foot">
       <div class="name">{{ def.name }}</div>
-      <div class="tags">
-        <span class="tag pol">{{ POLARITY_LABEL[def.polarity] }}</span>
-        <span v-if="def.hpPerTurn" class="tag">
-          <v-icon :icon="def.hpPerTurn < 0 ? 'mdi-heart-minus' : 'mdi-heart-plus'" />
-          {{ def.hpPerTurn > 0 ? '+' : '−' }}{{ Math.abs(def.hpPerTurn) }}
-        </span>
-        <span v-if="def.skipsTurn" class="tag"><v-icon icon="mdi-pause-circle" /> vez</span>
-      </div>
     </div>
   </div>
 </template>
@@ -117,21 +107,14 @@ const turns = computed(() => (props.def.turns ? roman(props.def.turns) : '∞'))
 .numeral {
   font-family: var(--font-title);
   font-weight: 700;
-  font-size: 11cqw;
-  letter-spacing: 0.08em;
+  font-size: 6cqw;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
   background: var(--gold-text);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   filter: drop-shadow(0 0 2cqw rgba(0, 0, 0, 0.9));
-}
-
-.turns-lbl {
-  margin-top: 1cqw;
-  font-size: 4cqw;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  opacity: 0.6;
 }
 
 .seal {
@@ -242,36 +225,6 @@ const turns = computed(() => (props.def.turns ? roman(props.def.turns) : '∞'))
   letter-spacing: 0.04em;
   color: #fbe7b4;
   text-shadow: 0 0 3cqw rgba(0, 0, 0, 0.9);
-}
-
-.tags {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 1.5cqw;
-  margin-top: 2cqw;
-}
-
-.tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.8cqw;
-  padding: 0.6cqw 2.2cqw;
-  border-radius: 99px;
-  font-size: 4cqw;
-  border: 1px solid color-mix(in srgb, var(--tone) 60%, transparent);
-  background: color-mix(in srgb, var(--tone) 20%, rgba(0, 0, 0, 0.5));
-}
-
-.tag :deep(.v-icon) {
-  font-size: 4.5cqw;
-  width: auto;
-  height: auto;
-}
-
-.tag.pol {
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
 }
 
 @keyframes spin {

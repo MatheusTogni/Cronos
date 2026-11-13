@@ -15,8 +15,9 @@ import {
 } from '@/types/api'
 
 /**
- * Mestre aplica uma condição (do catálogo, com os padrões preenchidos, ou livre)
- * num personagem, numa invocação ou num inimigo.
+ * Mestre coloca uma condição (do catálogo ou livre) num personagem, numa
+ * invocação ou num inimigo. É só um status à mostra: não tem prazo nem efeito
+ * automático, e quem tira é o mestre.
  */
 const props = defineProps<{ target: ConditionTarget | null }>()
 
@@ -34,9 +35,6 @@ const notify = useNotifyStore()
 /** Item do catálogo escolhido ou nome digitado. */
 const choice = ref<ConditionDef | string | null>(null)
 const polarity = ref<ConditionPolarity>('DEBUFF')
-const turns = ref<number | string | null>(null)
-const hpPerTurn = ref<number | string | null>(0)
-const skipsTurn = ref(false)
 const description = ref('')
 const error = ref('')
 const busy = ref(false)
@@ -48,32 +46,17 @@ watch(open, (isOpen) => {
   if (!isOpen) return
   choice.value = null
   polarity.value = 'DEBUFF'
-  turns.value = null
-  hpPerTurn.value = 0
-  skipsTurn.value = false
   description.value = ''
   error.value = ''
   catalog.load().catch((e: unknown) => notify.error(errorMessage(e)))
 })
 
-// escolher do catálogo preenche os padrões (dá para ajustar antes de aplicar)
+// escolher do catálogo preenche tipo e descrição (dá para ajustar antes de aplicar)
 watch(def, (d) => {
   if (!d) return
   polarity.value = d.polarity
-  turns.value = d.turns
-  hpPerTurn.value = d.hpPerTurn
-  skipsTurn.value = d.skipsTurn
   description.value = d.description
 })
-
-const turnHint = computed(() => {
-  const t = props.target
-  if (t?.kind === 'npc') return 'Desconta no fim de cada turno do mestre (turno dos inimigos).'
-  if (t?.kind === 'summon') return 'Desconta no fim de cada turno do dono da criatura.'
-  return `Desconta no fim de cada turno de ${t?.name ?? 'quem carrega'}.`
-})
-
-const toInt = (v: number | string | null) => (v === null || v === '' ? null : Number(v))
 
 async function submit() {
   error.value = ''
@@ -84,23 +67,8 @@ async function submit() {
     error.value = 'Escolha uma condição ou digite um nome'
     return
   }
-  const t = toInt(turns.value)
-  if (t !== null && (!Number.isInteger(t) || t < 1 || t > 99)) {
-    error.value = 'Turnos: de 1 a 99 (vazio = sem prazo)'
-    return
-  }
-  const hp = toInt(hpPerTurn.value) ?? 0
-  if (!Number.isInteger(hp) || hp < -999 || hp > 999) {
-    error.value = 'Vida por turno inválida'
-    return
-  }
 
-  const body: Record<string, unknown> = {
-    polarity: polarity.value,
-    turns: t,
-    hpPerTurn: hp,
-    skipsTurn: skipsTurn.value,
-  }
+  const body: Record<string, unknown> = { polarity: polarity.value }
   if (def.value) body.defId = def.value.id
   else body.name = name
   if (description.value.trim()) body.description = description.value.trim()
@@ -143,30 +111,6 @@ async function submit() {
             <v-btn v-for="p in POLARITIES" :key="p" :value="p" :color="POLARITY_COLOR[p]">{{ POLARITY_LABEL[p] }}</v-btn>
           </v-btn-toggle>
 
-          <div class="row">
-            <v-text-field
-              v-model="turns"
-              label="Turnos"
-              type="number"
-              min="1"
-              max="99"
-              hint="Vazio = até remover"
-              persistent-hint
-            />
-            <v-text-field
-              v-model="hpPerTurn"
-              label="Vida por turno"
-              type="number"
-              min="-999"
-              max="999"
-              hint="Negativo = dano"
-              persistent-hint
-            />
-          </div>
-          <p class="hint">{{ turnHint }}</p>
-
-          <v-switch v-model="skipsTurn" label="Perde a vez" color="error" hide-details density="compact" class="mb-2" />
-
           <v-textarea v-model="description" label="Detalhes (opcional)" maxlength="300" rows="2" auto-grow hide-details />
 
           <v-alert v-if="error" type="error" variant="tonal" density="compact" class="mt-3">{{ error }}</v-alert>
@@ -194,17 +138,5 @@ async function submit() {
 .pol-toggle {
   flex-wrap: wrap;
   height: auto;
-}
-
-.row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.hint {
-  font-size: 0.85rem;
-  opacity: 0.65;
-  margin: 8px 0 4px;
 }
 </style>

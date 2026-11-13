@@ -1,51 +1,51 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { AbilityEffect, AbilityKind, ConditionPolarity } from '@prisma/client';
+import { AbilityKind, ConditionPolarity } from '@prisma/client';
 
 interface Crit {
   min: number;
   max: number;
   text: string;
-  condition?: string;
-  turns?: number;
-  on?: string;
 }
 interface SeedAbility {
   kind: string;
   name: string;
   manaCost: number;
-  dealsDamage?: boolean;
+  description: string;
   crits?: Crit[];
-  effect?: string;
-  effectData?: { name?: string; condition?: string };
 }
 interface SeedClass {
   id: string;
   name: string;
   artFile: string;
-  maxSummons: number;
   abilities: SeedAbility[];
 }
 
 const seedFile = (name: string) =>
   readFileSync(join(__dirname, '..', 'prisma', 'seed', name), 'utf8');
 const classes = JSON.parse(seedFile('classes.json')) as SeedClass[];
-const conditionDefs = JSON.parse(seedFile('conditions.json')) as {
-  id: string;
-  name: string;
-  polarity: string;
-  turns?: number;
-}[];
+const conditionDefs = JSON.parse(seedFile('conditions.json')) as Record<
+  string,
+  unknown
+>[];
 
 describe('prisma/seed/conditions.json', () => {
-  it('ids únicos, polaridade válida e duração positiva', () => {
+  it('ids únicos e polaridade válida', () => {
     expect(new Set(conditionDefs.map((d) => d.id)).size).toBe(
       conditionDefs.length,
     );
     for (const d of conditionDefs) {
       expect(d.name).toBeTruthy();
+      expect(d.description).toBeTruthy();
       expect(Object.values(ConditionPolarity)).toContain(d.polarity);
-      if (d.turns !== undefined) expect(d.turns).toBeGreaterThan(0);
+    }
+  });
+
+  it('é só status à mostra: sem prazo nem efeito automático', () => {
+    for (const d of conditionDefs) {
+      expect(Object.keys(d).sort()).toEqual(
+        ['description', 'id', 'name', 'polarity'].sort(),
+      );
     }
   });
 });
@@ -56,61 +56,30 @@ describe('prisma/seed/classes.json', () => {
     expect(new Set(classes.map((c) => c.id)).size).toBe(9);
   });
 
-  it('marca como dano só os 7 ataques (o d20 vira o dano); efeitos não causam dano', () => {
-    const damaging = classes
-      .flatMap((c) => c.abilities)
-      .filter((a) => a.dealsDamage)
-      .map((a) => a.name)
-      .sort();
-    expect(damaging).toEqual(
-      [
-        'Golpe Pesado',
-        'Execução',
-        'Golpe Serrilhado',
-        'Passo Predatório',
-        'Toque Fúnebre',
-        'Corte Furtivo',
-        'Estilhaço Temporal',
-      ].sort(),
-    );
-    for (const a of classes.flatMap((c) => c.abilities)) {
-      if (a.effect) expect(a.dealsDamage).toBeUndefined();
-    }
-  });
-
   it.each(classes.map((c) => [c.name, c] as const))(
-    '%s: 1 ataque básico + 3 skills, dados coerentes',
+    '%s: 3 skills (sem ataque básico), só dados de referência',
     (_name, c) => {
-      const basics = c.abilities.filter((a) => a.kind === 'BASIC');
-      const skills = c.abilities.filter((a) => a.kind === 'SKILL');
-      expect(basics).toHaveLength(1);
-      expect(skills).toHaveLength(3);
-      expect(basics[0].manaCost).toBe(0);
+      expect(c.abilities).toHaveLength(3);
+      expect(new Set(c.abilities.map((a) => a.name)).size).toBe(3);
 
       for (const a of c.abilities) {
-        expect(Object.values(AbilityKind)).toContain(a.kind);
-        if (a.effect) expect(Object.values(AbilityEffect)).toContain(a.effect);
-        // condição: aponta para o catálogo (ou traz o nome, se for livre)
-        if (a.effect?.endsWith('CONDITION')) {
-          const ref = a.effectData?.condition;
-          if (ref) expect(conditionDefs.map((d) => d.id)).toContain(ref);
-          else expect(a.effectData?.name).toBeTruthy();
-        }
+        expect(a.kind).toBe(AbilityKind.SKILL);
+        expect(a.manaCost).toBeGreaterThanOrEqual(1);
+        expect(a.description).toBeTruthy();
+        // nada de automação: dano, efeito e condição são do mestre
+        expect(Object.keys(a).filter((k) => k !== 'crits')).toEqual([
+          'kind',
+          'name',
+          'manaCost',
+          'description',
+        ]);
         for (const crit of a.crits ?? []) {
+          expect(Object.keys(crit).sort()).toEqual(['max', 'min', 'text']);
           expect(crit.min).toBeGreaterThanOrEqual(1);
           expect(crit.max).toBeLessThanOrEqual(20);
           expect(crit.min).toBeLessThanOrEqual(crit.max);
           expect(crit.text).toBeTruthy();
-          if (crit.condition) {
-            expect(conditionDefs.map((d) => d.id)).toContain(crit.condition);
-          }
-          if (crit.turns !== undefined) expect(crit.turns).toBeGreaterThan(0);
-          if (crit.on) expect(['target', 'self']).toContain(crit.on);
         }
-      }
-
-      if (c.abilities.some((a) => a.effect === 'SUMMON')) {
-        expect(c.maxSummons).toBeGreaterThan(0);
       }
 
       // a arte é servida pelo front a partir de front/public

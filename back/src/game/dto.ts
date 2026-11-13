@@ -1,9 +1,8 @@
-import { Transform, Type } from 'class-transformer';
+import { Transform } from 'class-transformer';
 import { ConditionPolarity } from '@prisma/client';
 import {
   ArrayMaxSize,
   IsArray,
-  IsBoolean,
   IsEnum,
   IsIn,
   IsInt,
@@ -15,75 +14,55 @@ import {
   MaxLength,
   Min,
   ValidateIf,
-  ValidateNested,
 } from 'class-validator';
+import { SHOP_CODES } from './shop';
 
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
-
-export const ACTION_TARGET_KINDS = ['self', 'character', 'npc'] as const;
-
-/** Em quem o jogador usa a habilidade: ele mesmo, alguém da party ou um inimigo em cena. */
-export class ActionTargetDto {
-  @IsIn(ACTION_TARGET_KINDS)
-  kind!: (typeof ACTION_TARGET_KINDS)[number];
-
-  @ValidateIf((o: ActionTargetDto) => o.kind !== 'self')
-  @IsUUID()
-  id?: string;
-}
-
-/**
- * O jogador só declara: habilidade + alvo. O d20 e o dano são do mestre, que
- * digita o valor ao resolver a ação (ver ResolveActionDto).
- */
-export class UseAbilityDto {
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => ActionTargetDto)
-  target?: ActionTargetDto;
-
-  /** Resposta à pergunta da habilidade (ex.: o que o Apostador aposta). */
-  @IsOptional()
-  @Transform(trim)
-  @IsString()
-  @MaxLength(120)
-  note?: string;
-
-  /** Qual invocação sacrificar, se houver mais de uma. */
-  @IsOptional()
-  @IsUUID()
-  summonId?: string;
-}
-
-/** O mestre resolve uma ação declarada. */
-export class ResolveActionDto {
-  /** O d20 da mesa: vira o dano (se a habilidade causa dano) e vale para o crítico. */
-  @IsOptional()
-  @IsInt({ message: 'Informe o valor do d20' })
-  @Min(1, { message: 'O d20 vai de 1 a 20' })
-  @Max(20, { message: 'O d20 vai de 1 a 20' })
-  roll?: number;
-
-  /** Nome da criatura invocada (Reanimar). */
-  @IsOptional()
-  @Transform(trim)
-  @IsString()
-  @MaxLength(60)
-  summonName?: string;
-}
 
 export class AdjustDto {
   @IsOptional() @IsInt() @Min(-9999) @Max(9999) hp?: number;
   @IsOptional() @IsInt() @Min(-9999) @Max(9999) mana?: number;
   @IsOptional() @IsInt() @Min(-99999) @Max(99999) xp?: number;
   @IsOptional() @IsInt() @Min(-99) @Max(99) level?: number;
+  @IsOptional() @IsInt() @Min(-9999) @Max(9999) gold?: number;
 
   @IsOptional()
   @Transform(trim)
   @IsString()
   @MaxLength(120)
   reason?: string;
+}
+
+/** Compra de 1 unidade de um item do catálogo da loja. */
+export class BuyDto {
+  @IsIn(SHOP_CODES)
+  item!: string;
+}
+
+export const OFFER_KINDS = ['GIFT', 'TRADE'] as const;
+
+/**
+ * Oferta de doação (item ou ouro) ou de troca (item por item) a outro jogador.
+ * Quais campos valem em cada caso é conferido no TransfersService.
+ */
+export class OfferDto {
+  @IsUUID()
+  toCharacterId!: string;
+
+  @IsIn(OFFER_KINDS)
+  kind!: (typeof OFFER_KINDS)[number];
+
+  /** Item do inventário de quem oferece. */
+  @IsOptional() @IsUUID() itemId?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(9999) qty?: number;
+
+  /** Doação de ouro (no lugar de um item). */
+  @IsOptional() @IsInt() @Min(1) @Max(9999) gold?: number;
+
+  /** Só na troca: item do inventário de quem vai receber. */
+  @IsOptional() @IsUUID() askItemId?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(9999) askQty?: number;
 }
 
 export class UpdateCharacterDto {
@@ -162,24 +141,6 @@ export class CreateConditionDto {
   @IsOptional()
   @IsEnum(ConditionPolarity)
   polarity?: ConditionPolarity;
-
-  /** Turnos de quem carrega; sem valor = padrão do catálogo (ou sem prazo). */
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(99)
-  turns?: number;
-
-  /** Vida aplicada no fim de cada turno (negativo = dano). */
-  @IsOptional()
-  @IsInt()
-  @Min(-999)
-  @Max(999)
-  hpPerTurn?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  skipsTurn?: boolean;
 }
 
 export class CreateItemDto {
@@ -254,17 +215,6 @@ export class TurnOrderDto {
   @ArrayMaxSize(50)
   @IsUUID('4', { each: true })
   characterIds!: string[];
-}
-
-export const TARGET_KINDS = ['character', 'summon', 'npc'] as const;
-
-/** Em quem o mestre aplica o efeito pendente. */
-export class ApplyPendingDto {
-  @IsIn(TARGET_KINDS)
-  kind!: (typeof TARGET_KINDS)[number];
-
-  @IsUUID()
-  id!: string;
 }
 
 export class CreateNpcDto {

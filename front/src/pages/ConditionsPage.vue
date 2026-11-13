@@ -4,14 +4,12 @@ import ConditionArt from '@/components/ConditionArt.vue'
 import ConditionSheet from '@/components/ConditionSheet.vue'
 import FrameGallery from '@/components/FrameGallery.vue'
 import { errorMessage } from '@/services/api'
-import { useClassesStore } from '@/stores/classes'
 import { useConditionsStore } from '@/stores/conditions'
 import { POLARITY_LABEL, type ConditionPolarity } from '@/types/api'
 import { conditionArt } from '@/utils/conditionArt'
 
 /** Galeria do catálogo de condições, no mesmo estilo da de classes. */
 const catalog = useConditionsStore()
-const classes = useClassesStore()
 
 const loading = ref(false)
 const error = ref('')
@@ -20,8 +18,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    // as classes servem para mostrar "quem aplica" cada condição
-    await Promise.all([catalog.load(), classes.load()])
+    await catalog.load()
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -44,9 +41,7 @@ const items = computed(() =>
     .map((def) => ({
       id: def.id,
       name: def.name,
-      subtitle:
-        POLARITY_LABEL[def.polarity] +
-        (def.turns ? ` · ${def.turns} ${def.turns === 1 ? 'turno' : 'turnos'}` : ' · sem prazo'),
+      subtitle: POLARITY_LABEL[def.polarity],
       accent: conditionArt(def.id, def.polarity).color,
       def,
     })),

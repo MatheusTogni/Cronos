@@ -9,11 +9,9 @@ import {
   diffState,
   forPlayers,
   LogDto,
-  logSelect,
   logView,
   snapshotState,
   StateSnapshot,
-  toLogDto,
 } from './state';
 
 /**
@@ -24,7 +22,7 @@ import {
  *  - campaign:patch     (só o que mudou desde o último envio) → idem
  *  - log:new            (uma entrada do log)          → idem
  *  - log:reverted       ({ id })                      → idem
- *  - log:updated        (uma entrada do log, alterada) → idem
+ *  - transfer:new / transfer:updated (oferta de doação/troca) → só os dois jogadores envolvidos
  *  - campaigns:changed  (sem payload)                 → para todos os jogadores
  *  - campaign:kicked    ({ campaignId })              → para o jogador removido
  */
@@ -91,32 +89,17 @@ export class RealtimeService {
     }
   }
 
-  /** Uma entrada mudou (ex.: efeito pendente aplicado ou descartado). */
-  async logUpdated(campaignId: string, id: string) {
-    try {
-      const entry = await this.prisma.logEntry.findUnique({
-        where: { id },
-        select: logSelect,
-      });
-      if (entry) {
-        const dto = toLogDto(entry);
-        for (const audience of AUDIENCES) {
-          this.server
-            ?.to(rooms.campaign(campaignId, audience))
-            .emit('log:updated', logView(dto, audience));
-        }
-      }
-    } catch (e) {
-      this.logger.warn(`Falha ao transmitir log: ${String(e)}`);
-    }
-  }
-
   emitLogReverted(campaignId: string, id: string) {
     for (const audience of AUDIENCES) {
       this.server
         ?.to(rooms.campaign(campaignId, audience))
         .emit('log:reverted', { id });
     }
+  }
+
+  /** Aviso pessoal: só as conexões desse usuário recebem (ex.: oferta de troca). */
+  toUser(userId: string, event: string, payload: unknown) {
+    this.server?.to(rooms.user(userId)).emit(event, payload);
   }
 
   /** A lista de campanhas abertas mudou (abriu, começou, encerrou, alguém entrou). */

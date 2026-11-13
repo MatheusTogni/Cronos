@@ -5,8 +5,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  Ability,
-  AbilityEffect,
   Campaign,
   CampaignStatus,
   Character,
@@ -24,72 +22,30 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { LogDto } from '../realtime/state';
 import {
-  ActionTargetDto,
   AdjustDto,
   AdjustSummonDto,
-  ApplyPendingDto,
+  BuyDto,
   CreateConditionDto,
   CreateItemDto,
   CreateSummonDto,
   NoteDto,
-  ResolveActionDto,
   RollDto,
   UpdateCharacterDto,
   UpdateItemDto,
   UpdateSummonDto,
-  UseAbilityDto,
 } from './dto';
+import { applyCondition, conditionAddedMessage, joinPt } from './conditions';
 import {
-  applyCondition,
-  conditionAddedMessage,
-  Holder,
-  joinPt,
-  turnsLabel,
-} from './conditions';
-import { BAND_NARRATION, healthBand } from './health';
-import {
-  ActionTarget,
   applyStats,
   clamp,
   Delta,
   DeltaBuilder,
-  PendingAction,
-  PendingCondition,
-  PendingEffect,
   revertDelta,
   writeLog,
 } from './journal';
-import { INSTABILITY_CLASS, INSTABILITY_LIMIT } from './rules';
+import { shopItem } from './shop';
 
 type Tx = Prisma.TransactionClient;
-
-type CharacterFull = Prisma.CharacterGetPayload<{
-  include: {
-    class: true;
-    summons: { include: { conditions: true } };
-  };
-}>;
-
-interface Crit {
-  min: number;
-  max: number;
-  text: string;
-  /** Condição do catálogo aplicada nessa faixa. */
-  condition?: string;
-  turns?: number;
-  /** Em quem cai: no alvo (padrão) ou em quem usou. */
-  on?: 'target' | 'self';
-}
-
-interface EffectData {
-  /** Condição do catálogo (SELF_CONDITION / TARGET_CONDITION). */
-  condition?: string;
-  turns?: number;
-  name?: string;
-  description?: string;
-  exclusiveGroup?: string;
-  hp?: number;
-}
 
 interface Ctx {
   campaign: Campaign;
@@ -108,29 +64,16 @@ export class GameService {
   // ───────────────────────── habilidades ─────────────────────────
 
   /**
-   * O jogador declara a habilidade e o alvo; o d20 e o dano são do mestre.
-   * Habilidade que causa dano, tem faixa de crítico ou põe efeito num inimigo
-   * fica aguardando o mestre (a mana já é cobrada). As demais resolvem na hora.
+   * O jogador toca na skill: o app só gasta a mana e registra no log. Dano,
+   * efeitos e condições são do mestre, que resolve tudo pela interface dele.
    */
-  async useAbility(
-    characterId: string,
-    abilityId: string,
-    dto: UseAbilityDto,
-    user: AuthUser,
-  ) {
+  async useAbility(characterId: string, abilityId: string, user: AuthUser) {
     const ctx = await this.characterCtx(characterId, user, { owner: true });
     this.assertTurn(ctx);
 
     return this.run(ctx.campaign.id, async (tx) => {
       const ch = await tx.character.findUniqueOrThrow({
         where: { id: characterId },
-        include: {
-          class: true,
-          summons: {
-            orderBy: { createdAt: 'asc' },
-            include: { conditions: true },
-          },
-        },
       });
       if (ch.hp === 0) {
         throw new BadRequestException(`${ch.name} está caído e não pode agir`);
@@ -146,445 +89,23 @@ export class GameService {
           `Mana insuficiente: ${ability.name} custa ${ability.manaCost} e ${ch.name} tem ${ch.mana}`,
         );
       }
-      if (ability.prompt && !dto.note) {
-        throw new BadRequestException(ability.prompt);
-      }
-      if (ability.effect === AbilityEffect.SACRIFICE_SUMMON) {
-        this.pickVictim(ch, dto.summonId); // falha cedo, antes de cobrar a mana
-      }
-      const target = await this.resolveTarget(tx, ch, ability, dto.target);
 
-      const crits = (ability.crits as Crit[] | null) ?? [];
-      const needsRoll = ability.dealsDamage || crits.length > 0;
-      const needsMaster =
-        needsRoll ||
-        (ability.effect === AbilityEffect.TARGET_CONDITION &&
-          target?.kind === 'npc');
-      if (needsMaster) {
-        const open = await tx.logEntry.findFirst({
-          where: {
-            characterId: ch.id,
-            revertedAt: null,
-            pendingAction: { not: Prisma.DbNull },
-          },
-          select: { id: true },
-        });
-        if (open) {
-          throw new BadRequestException(
-            `${ch.name} já tem uma ação aguardando o mestre`,
-          );
-        }
-      }
-
-      // a mana sai na declaração; o Tecelão também acumula instabilidade e,
-      // no limite, o tempo rompe em paradoxo e ela volta a zero (numa só
-      // alteração, para o desfazer devolver o valor de antes)
       const delta = new DeltaBuilder();
-      const temporal = ch.classId === INSTABILITY_CLASS;
-      const paradox = temporal && ch.instability + 1 >= INSTABILITY_LIMIT;
-      await applyStats(
-        tx,
-        ch,
-        {
-          mana: -ability.manaCost,
-          instability: !temporal ? 0 : paradox ? -ch.instability : 1,
-        },
-        delta,
-      );
+      await applyStats(tx, ch, { mana: -ability.manaCost }, delta);
 
-      const label = !target
-        ? ''
-        : ` em ${target.kind === 'self' ? 'si mesmo' : target.name}`;
       const cost = ability.manaCost ? ` (−${ability.manaCost} mana)` : '';
-      const said = dto.note ? ` — "${dto.note}"` : '';
-      const burst = paradox
-        ? ` Paradoxo! O tempo se rasga ao redor de ${ch.name}.`
-        : '';
-
-      if (needsMaster) {
-        const action: PendingAction = {
-          characterId: ch.id,
-          characterName: ch.name,
-          abilityId: ability.id,
-          abilityName: ability.name,
-          manaCost: ability.manaCost,
-          target,
-          needsRoll,
-          dealsDamage: ability.dealsDamage,
-          ...(dto.note ? { note: dto.note } : {}),
-          ...(dto.summonId ? { summonId: dto.summonId } : {}),
-        };
-        return writeLog(tx, {
-          campaignId: ch.campaignId,
-          actorUserId: user.id,
-          characterId: ch.id,
-          type: LogType.ABILITY_USED,
-          message: `${ch.name} usa ${ability.name}${label}${cost}${said}.${burst}`,
-          delta,
-          pendingAction: action,
-        });
-      }
-
-      const done = await this.performAbility(tx, {
-        ch,
-        ability,
-        target,
-        roll: null,
-        summonId: dto.summonId,
-        delta,
-      });
       return writeLog(tx, {
         campaignId: ch.campaignId,
         actorUserId: user.id,
         characterId: ch.id,
         type: LogType.ABILITY_USED,
-        message: `${ch.name} usou ${ability.name}${label}${cost}${said}${done.public}${burst}`,
-        masterMessage: `${ch.name} usou ${ability.name}${label}${cost}${said}${done.master}${burst}`,
-        delta,
-        pendingEffect: { source: ch.name, conditions: done.pending },
-      });
-    });
-  }
-
-  /** O mestre digita o d20 (ou só confirma) e a ação declarada acontece. */
-  async resolveAction(logId: string, dto: ResolveActionDto, user: AuthUser) {
-    const { entry, action } = await this.actionCtx(logId, user);
-    const campaignId = entry.campaignId;
-    if (action.needsRoll && dto.roll === undefined) {
-      throw new BadRequestException('Informe o d20 (1 a 20)');
-    }
-    const roll = action.needsRoll ? (dto.roll ?? null) : null;
-
-    const result = await this.run(campaignId, async (tx) => {
-      const ch = await tx.character.findFirst({
-        where: { id: action.characterId, campaignId },
-        include: {
-          class: true,
-          summons: {
-            orderBy: { createdAt: 'asc' },
-            include: { conditions: true },
-          },
-        },
-      });
-      const ability = await tx.ability.findUnique({
-        where: { id: action.abilityId },
-      });
-      if (!ch || !ability) {
-        throw new BadRequestException(
-          'O personagem ou a habilidade não existem mais: negue a ação',
-        );
-      }
-
-      // pega a ação primeiro: se outro clique já resolveu, para aqui
-      const claimed = await tx.logEntry.updateMany({
-        where: {
-          id: logId,
-          revertedAt: null,
-          pendingAction: { not: Prisma.DbNull },
-        },
-        data: { pendingAction: Prisma.DbNull, delta: Prisma.DbNull },
-      });
-      if (!claimed.count) {
-        throw new BadRequestException('Essa ação não está mais pendente');
-      }
-      const delta = new DeltaBuilder();
-      delta.clearedAction(logId, action, entry.delta);
-
-      const done = await this.performAbility(tx, {
-        ch,
-        ability,
-        target: action.target,
-        roll,
-        summonName: dto.summonName,
-        summonId: action.summonId,
+        message: `${ch.name} usou ${ability.name}${cost}`,
         delta,
       });
-      const label = !action.target
-        ? ''
-        : ` em ${action.target.kind === 'self' ? 'si mesmo' : action.target.name}`;
-      const said = action.note ? ` — "${action.note}"` : '';
-      const head = `${ch.name} usou ${ability.name}${label}${said}`;
-      return writeLog(tx, {
-        campaignId,
-        actorUserId: user.id,
-        characterId: ch.id,
-        type: LogType.ABILITY_USED,
-        message: `${head}${done.public}`,
-        masterMessage: `${head}${done.master}`,
-        roll,
-        delta,
-        pendingEffect: { source: ch.name, conditions: done.pending },
-      });
     });
-    await this.realtime.logUpdated(campaignId, logId);
-    return result;
   }
 
-  /** O mestre nega a ação declarada: a mana volta e nada acontece. */
-  async denyAction(logId: string, user: AuthUser) {
-    const { entry, action } = await this.actionCtx(logId, user);
-    const campaignId = entry.campaignId;
-    const result = await this.run(campaignId, async (tx) => {
-      const marked = await tx.logEntry.updateMany({
-        where: {
-          id: logId,
-          revertedAt: null,
-          pendingAction: { not: Prisma.DbNull },
-        },
-        data: { pendingAction: Prisma.DbNull, revertedAt: new Date() },
-      });
-      if (!marked.count) {
-        throw new BadRequestException('Essa ação não está mais pendente');
-      }
-      if (entry.delta) await revertDelta(tx, entry.delta as Delta);
-      const label = !action.target
-        ? ''
-        : ` em ${action.target.kind === 'self' ? 'si mesmo' : action.target.name}`;
-      return writeLog(tx, {
-        campaignId,
-        actorUserId: user.id,
-        characterId: action.characterId,
-        type: LogType.NOTE,
-        message: `${action.characterName} não consegue usar ${action.abilityName}${label}${action.manaCost ? ' (a mana volta)' : ''}`,
-      });
-    });
-    await this.realtime.logUpdated(campaignId, logId);
-    return result;
-  }
-
-  private async actionCtx(logId: string, user: AuthUser) {
-    const entry = await this.prisma.logEntry.findUnique({
-      where: { id: logId },
-    });
-    if (!entry) throw new NotFoundException('Registro não encontrado');
-    const campaign = await this.activeCampaign(entry.campaignId, user);
-    if (!isCampaignMaster(campaign, user)) {
-      throw new ForbiddenException('Só o mestre resolve ações');
-    }
-    const action = entry.pendingAction as unknown as PendingAction | null;
-    if (!action || entry.revertedAt) {
-      throw new BadRequestException('Essa ação não está mais pendente');
-    }
-    return { entry, action };
-  }
-
-  /** Confere o alvo declarado e o devolve com o nome, ou null se a habilidade não usa alvo. */
-  private async resolveTarget(
-    tx: Tx,
-    ch: Character,
-    ability: Ability,
-    t?: ActionTargetDto,
-  ): Promise<ActionTarget | null> {
-    const own =
-      ability.effect === AbilityEffect.SUMMON ||
-      ability.effect === AbilityEffect.SACRIFICE_SUMMON ||
-      ability.effect === AbilityEffect.SELF_CONDITION;
-    if (own && !ability.dealsDamage) return null;
-
-    const required =
-      ability.dealsDamage || ability.effect === AbilityEffect.TARGET_CONDITION;
-    if (!t) {
-      if (required) throw new BadRequestException('Escolha o alvo');
-      return null;
-    }
-    if (ability.dealsDamage && t.kind !== 'npc') {
-      throw new BadRequestException(
-        'Esse ataque precisa de um inimigo como alvo',
-      );
-    }
-    if (t.kind === 'self') return { kind: 'self', id: ch.id, name: ch.name };
-    if (t.kind === 'character') {
-      const c = await tx.character.findFirst({
-        where: { id: t.id ?? '', campaignId: ch.campaignId },
-      });
-      if (!c) throw new BadRequestException('Alvo não está nesta campanha');
-      return c.id === ch.id
-        ? { kind: 'self', id: c.id, name: c.name }
-        : { kind: 'character', id: c.id, name: c.name };
-    }
-    const n = await tx.npc.findFirst({
-      where: { id: t.id ?? '', campaignId: ch.campaignId },
-    });
-    if (!n) throw new BadRequestException('Alvo não está nesta campanha');
-    return { kind: 'npc', id: n.id, name: n.name };
-  }
-
-  private pickVictim(ch: CharacterFull, summonId?: string) {
-    if (!ch.summons.length) {
-      throw new BadRequestException(
-        `${ch.name} não tem nenhuma criatura para sacrificar`,
-      );
-    }
-    const victim = summonId
-      ? ch.summons.find((s) => s.id === summonId)
-      : ch.summons.length === 1
-        ? ch.summons[0]
-        : undefined;
-    if (!victim) {
-      throw new BadRequestException('Escolha qual criatura sacrificar');
-    }
-    return victim;
-  }
-
-  /**
-   * Faz a habilidade acontecer: dano (o d20 é o dano), crítico e o efeito
-   * automático. Devolve o que vai no fim da frase do log, na versão do mestre
-   * (com números) e na pública (narrada).
-   */
-  private async performAbility(
-    tx: Tx,
-    p: {
-      ch: CharacterFull;
-      ability: Ability;
-      target: ActionTarget | null;
-      roll: number | null;
-      summonName?: string;
-      summonId?: string;
-      delta: DeltaBuilder;
-    },
-  ) {
-    const { ch, ability, target, roll, delta } = p;
-    const crit =
-      roll === null
-        ? undefined
-        : ((ability.crits as Crit[] | null) ?? []).find(
-            (c) => roll >= c.min && roll <= c.max,
-          );
-
-    // quem recebe uma condição: o alvo declarado, ou quem usou
-    const holderOf = (t: ActionTarget | null) =>
-      !t
-        ? null
-        : t.kind === 'npc'
-          ? { holder: { npcId: t.id } as Holder, name: t.name, self: false }
-          : {
-              holder: { characterId: t.id } as Holder,
-              name: t.name,
-              self: t.id === ch.id,
-            };
-    const myself = holderOf({ kind: 'self', id: ch.id, name: ch.name });
-
-    // dano: o d20 é o dano
-    let masterDamage = '';
-    let publicDamage = '';
-    if (ability.dealsDamage && roll !== null && target?.kind === 'npc') {
-      const npc = await tx.npc.findUnique({ where: { id: target.id } });
-      if (!npc) throw new BadRequestException('O alvo saiu de cena');
-      const hp = clamp(npc.hp - roll, 0, npc.hpMax);
-      delta.npcHp(npc.id, hp - npc.hp);
-      await tx.npc.update({ where: { id: npc.id }, data: { hp } });
-      masterDamage = ` → ${roll} de dano em ${npc.name} (vida ${hp}/${npc.hpMax})${hp === 0 ? ' — caiu!' : ''}`;
-      publicDamage = ` — ${npc.name} foi atingido — ${BAND_NARRATION[healthBand(hp, npc.hpMax)]}`;
-    }
-
-    // efeito automático
-    const effect = (ability.effectData ?? {}) as EffectData;
-    const outcome: string[] = [];
-    const pending: PendingCondition[] = [];
-    const give = async (
-      who: NonNullable<ReturnType<typeof holderOf>>,
-      cond: PendingCondition,
-    ) => {
-      const { condition, replaced } = await applyCondition(
-        tx,
-        who.holder,
-        { ...cond, source: ch.name },
-        delta,
-      );
-      outcome.push(
-        (who.self
-          ? `${ch.name} está sob ${condition.name}`
-          : `${condition.name} aplicada em ${who.name}`) +
-          turnsLabel(condition.turnsLeft) +
-          (replaced.length ? ` (substituiu ${joinPt(replaced)})` : ''),
-      );
-    };
-    switch (ability.effect) {
-      case AbilityEffect.SUMMON: {
-        const max = ch.class.maxSummons;
-        if (max > 0 && ch.summons.length >= max) {
-          const excess = ch.summons.slice(0, ch.summons.length - max + 1);
-          for (const old of excess) {
-            delta.deletedSummon(old);
-            await tx.summon.delete({ where: { id: old.id } });
-          }
-          outcome.push(
-            `${joinPt(excess.map((s) => s.name))} ${excess.length > 1 ? 'desapareceram' : 'desapareceu'}`,
-          );
-        }
-        const hp = effect.hp ?? 10;
-        const summon = await tx.summon.create({
-          data: {
-            characterId: ch.id,
-            name: p.summonName || effect.name || 'Invocação',
-            hp,
-            hpMax: hp,
-          },
-        });
-        delta.created('summons', summon.id);
-        outcome.push(`surgiu ${summon.name}`);
-        break;
-      }
-
-      case AbilityEffect.SACRIFICE_SUMMON: {
-        const victim = this.pickVictim(ch, p.summonId);
-        delta.deletedSummon(victim);
-        await tx.summon.delete({ where: { id: victim.id } });
-        outcome.push(`${victim.name} foi sacrificada`);
-        break;
-      }
-
-      case AbilityEffect.SELF_CONDITION:
-      case AbilityEffect.TARGET_CONDITION: {
-        const who =
-          ability.effect === AbilityEffect.SELF_CONDITION
-            ? myself
-            : holderOf(target);
-        const cond: PendingCondition = {
-          defId: effect.condition,
-          name: effect.condition ? undefined : (effect.name ?? ability.name),
-          description: effect.description,
-          exclusiveGroup: effect.exclusiveGroup,
-          turns: effect.turns,
-        };
-        if (who) await give(who, cond);
-        else pending.push(cond); // o mestre escolhe em quem cai
-        break;
-      }
-    }
-
-    // crítico que aplica condição
-    if (crit?.condition) {
-      const cond: PendingCondition = {
-        defId: crit.condition,
-        turns: crit.turns,
-      };
-      const who = crit.on === 'self' ? myself : holderOf(target);
-      if (who) await give(who, cond);
-      else pending.push(cond);
-    }
-
-    if (pending.length) {
-      const names: string[] = [];
-      for (const c of pending) {
-        const def = c.defId
-          ? await tx.conditionDef.findUnique({ where: { id: c.defId } })
-          : null;
-        names.push(c.name ?? def?.name ?? c.defId ?? '?');
-      }
-      outcome.push(`aguardando o mestre aplicar ${joinPt(names)}`);
-    }
-
-    const critText = crit ? ` → ${crit.text}` : '';
-    const tail = outcome.length ? `. ${joinPt(outcome)}.` : '';
-    return {
-      master: `${roll !== null ? ` · d20: ${roll}` : ''}${masterDamage}${critText}${tail}`,
-      public: `${publicDamage}${critText}${tail}`,
-      pending,
-    };
-  }
-
-  // ───────────────────────── vida / mana / XP ─────────────────────────
+  // ───────────────────────── vida / mana / XP / ouro ─────────────────────────
 
   async adjust(characterId: string, dto: AdjustDto, user: AuthUser) {
     const ctx = await this.characterCtx(characterId, user, { owner: false });
@@ -593,8 +114,9 @@ export class GameService {
       mana: dto.mana ?? 0,
       xp: dto.xp ?? 0,
       level: dto.level ?? 0,
+      gold: dto.gold ?? 0,
     };
-    if (!req.hp && !req.mana && !req.xp && !req.level) {
+    if (!req.hp && !req.mana && !req.xp && !req.level && !req.gold) {
       throw new BadRequestException('Informe algum valor diferente de zero');
     }
 
@@ -617,6 +139,8 @@ export class GameService {
       if (req.mana > 0) parts.push(`recuperou ${req.mana} de mana`);
       if (req.xp > 0) parts.push(`ganhou ${req.xp} de XP`);
       if (req.xp < 0) parts.push(`perdeu ${-req.xp} de XP`);
+      if (req.gold > 0) parts.push(`recebeu ${req.gold} de ouro`);
+      if (req.gold < 0) parts.push(`perdeu ${-req.gold} de ouro`);
       if (req.level > 0) {
         parts.push(
           `subiu para o nível ${after.level} (vida máxima +${applied.hpMax})`,
@@ -631,6 +155,7 @@ export class GameService {
       const status: string[] = [];
       if (req.hp) status.push(`vida ${after.hp}/${after.hpMax}`);
       if (req.mana) status.push(`mana ${after.mana}/${after.manaMax}`);
+      if (req.gold) status.push(`ouro ${after.gold}`);
 
       let message = `${ch.name} ${joinPt(parts)}`;
       if (status.length) message += ` (${status.join(', ')})`;
@@ -646,7 +171,11 @@ export class GameService {
               ? LogType.MANA
               : req.xp
                 ? LogType.XP
-                : LogType.LEVEL;
+                : req.gold
+                  ? req.gold > 0
+                    ? LogType.ITEM_ADDED
+                    : LogType.ITEM_REMOVED
+                  : LogType.LEVEL;
 
       return writeLog(tx, {
         campaignId: ch.campaignId,
@@ -829,7 +358,7 @@ export class GameService {
     const ctx = await this.characterCtx(characterId, user, { owner: false });
     return this.run(ctx.campaign.id, async (tx) => {
       const delta = new DeltaBuilder();
-      const { condition, replaced } = await applyCondition(
+      const { condition } = await applyCondition(
         tx,
         { characterId },
         { ...dto, source: ctx.isMaster ? 'Mestre' : ctx.character.name },
@@ -840,13 +369,13 @@ export class GameService {
         actorUserId: user.id,
         characterId,
         type: LogType.CONDITION_ADDED,
-        message: conditionAddedMessage(ctx.character.name, condition, replaced),
+        message: conditionAddedMessage(ctx.character.name, condition),
         delta,
       });
     });
   }
 
-  /** Condição numa invocação: desconta no fim do turno do dono. */
+  /** Condição numa invocação. */
   async createSummonCondition(
     summonId: string,
     dto: CreateConditionDto,
@@ -857,7 +386,7 @@ export class GameService {
     });
     return this.run(ctx.campaign.id, async (tx) => {
       const delta = new DeltaBuilder();
-      const { condition, replaced } = await applyCondition(
+      const { condition } = await applyCondition(
         tx,
         { summonId },
         { ...dto, source: 'Mestre' },
@@ -871,7 +400,6 @@ export class GameService {
         message: conditionAddedMessage(
           `${summon.name} (de ${ctx.character.name})`,
           condition,
-          replaced,
         ),
         delta,
       });
@@ -921,112 +449,6 @@ export class GameService {
         delta,
       });
     });
-  }
-
-  // ───────────────────────── efeito pendente ─────────────────────────
-
-  /** O mestre aplica o efeito pendente de uma habilidade em alguém ("Aplicar em…"). */
-  async applyPending(logId: string, dto: ApplyPendingDto, user: AuthUser) {
-    const { entry, effect } = await this.pendingCtx(logId, user);
-    const campaignId = entry.campaignId;
-
-    // resolve o alvo dentro da campanha
-    let holder: Holder;
-    let name: string;
-    let characterId: string | null = null;
-    if (dto.kind === 'character') {
-      const c = await this.prisma.character.findFirst({
-        where: { id: dto.id, campaignId },
-      });
-      if (!c) throw new BadRequestException('Alvo não está nesta campanha');
-      holder = { characterId: c.id };
-      name = c.name;
-      characterId = c.id;
-    } else if (dto.kind === 'summon') {
-      const sm = await this.prisma.summon.findFirst({
-        where: { id: dto.id, character: { campaignId } },
-        include: { character: true },
-      });
-      if (!sm) throw new BadRequestException('Alvo não está nesta campanha');
-      holder = { summonId: sm.id };
-      name = `${sm.name} (de ${sm.character.name})`;
-      characterId = sm.characterId;
-    } else {
-      const n = await this.prisma.npc.findFirst({
-        where: { id: dto.id, campaignId },
-      });
-      if (!n) throw new BadRequestException('Alvo não está nesta campanha');
-      holder = { npcId: n.id };
-      name = n.name;
-    }
-
-    const result = await this.run(campaignId, async (tx) => {
-      // limpa o pendente primeiro: se outro clique já aplicou, para aqui
-      const cleared = await tx.logEntry.updateMany({
-        where: {
-          id: logId,
-          revertedAt: null,
-          pendingEffect: { not: Prisma.DbNull },
-        },
-        data: { pendingEffect: Prisma.DbNull },
-      });
-      if (!cleared.count) {
-        throw new BadRequestException('Esse efeito não está mais pendente');
-      }
-      const delta = new DeltaBuilder();
-      delta.clearedPending(logId, effect);
-      const parts: string[] = [];
-      for (const cond of effect.conditions) {
-        const { condition, replaced } = await applyCondition(
-          tx,
-          holder,
-          { ...cond, source: effect.source },
-          delta,
-        );
-        parts.push(
-          condition.name +
-            turnsLabel(condition.turnsLeft) +
-            (replaced.length ? ` (substituiu ${joinPt(replaced)})` : ''),
-        );
-      }
-      return writeLog(tx, {
-        campaignId,
-        actorUserId: user.id,
-        characterId,
-        type: LogType.CONDITION_ADDED,
-        message: `${joinPt(parts)}, de ${effect.source}, aplicada em ${name}`,
-        delta,
-      });
-    });
-    await this.realtime.logUpdated(campaignId, logId);
-    return result;
-  }
-
-  /** O mestre descarta o efeito pendente (não cai em ninguém). */
-  async discardPending(logId: string, user: AuthUser) {
-    const { entry } = await this.pendingCtx(logId, user);
-    await this.prisma.logEntry.update({
-      where: { id: logId },
-      data: { pendingEffect: Prisma.DbNull },
-    });
-    await this.realtime.logUpdated(entry.campaignId, logId);
-    return { log: null };
-  }
-
-  private async pendingCtx(logId: string, user: AuthUser) {
-    const entry = await this.prisma.logEntry.findUnique({
-      where: { id: logId },
-    });
-    if (!entry) throw new NotFoundException('Registro não encontrado');
-    const campaign = await this.activeCampaign(entry.campaignId, user);
-    if (!isCampaignMaster(campaign, user)) {
-      throw new ForbiddenException('Só o mestre aplica efeitos');
-    }
-    const effect = entry.pendingEffect as PendingEffect | null;
-    if (!effect || entry.revertedAt) {
-      throw new BadRequestException('Esse efeito não está mais pendente');
-    }
-    return { entry, effect };
   }
 
   // ───────────────────────── inventário ─────────────────────────
@@ -1092,6 +514,180 @@ export class GameService {
         characterId: ctx.character.id,
         type: LogType.ITEM_REMOVED,
         message: `${ctx.character.name} não tem mais ${item.name}`,
+        delta,
+      });
+    });
+  }
+
+  // ───────────────────────── loja e itens ─────────────────────────
+
+  /** O mestre abre ou fecha a loja do mercador para os jogadores. */
+  async setShop(campaignId: string, open: boolean, user: AuthUser) {
+    const campaign = await this.activeCampaign(campaignId, user);
+    if (!isCampaignMaster(campaign, user)) {
+      throw new ForbiddenException('Só o mestre abre a loja');
+    }
+    if (campaign.shopOpen === open) {
+      throw new BadRequestException(
+        open ? 'A loja já está aberta' : 'A loja já está fechada',
+      );
+    }
+    return this.run(campaignId, async (tx) => {
+      await tx.campaign.update({
+        where: { id: campaignId },
+        data: { shopOpen: open },
+      });
+      return writeLog(tx, {
+        campaignId,
+        actorUserId: user.id,
+        type: LogType.NOTE,
+        message: open
+          ? 'O mercador abriu a loja.'
+          : 'O mercador fechou as portas.',
+      });
+    });
+  }
+
+  /** O jogador compra 1 unidade de um item do catálogo com o próprio ouro. */
+  async buy(characterId: string, dto: BuyDto, user: AuthUser) {
+    const ctx = await this.characterCtx(characterId, user, { owner: true });
+    if (!ctx.campaign.shopOpen) {
+      throw new BadRequestException('A loja está fechada');
+    }
+    const product = shopItem(dto.item);
+    if (!product) throw new BadRequestException('Esse item não está à venda');
+
+    return this.run(ctx.campaign.id, async (tx) => {
+      // cobra direto no banco: só passa se ainda houver o ouro, então dois
+      // cliques seguidos não gastam a mesma moeda duas vezes
+      const paid = await tx.character.updateMany({
+        where: { id: characterId, gold: { gte: product.price } },
+        data: { gold: { decrement: product.price } },
+      });
+      if (!paid.count) {
+        throw new BadRequestException(
+          `Ouro insuficiente: ${product.name} custa ${product.price}`,
+        );
+      }
+      const delta = new DeltaBuilder();
+      delta.stat(characterId, { gold: -product.price });
+
+      const stack = await tx.inventoryItem.findFirst({
+        where: { characterId, code: product.code },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (stack) {
+        await tx.inventoryItem.update({
+          where: { id: stack.id },
+          data: { qty: { increment: 1 } },
+        });
+        delta.itemQty(stack.id, 1);
+      } else {
+        const item = await tx.inventoryItem.create({
+          data: {
+            characterId,
+            name: product.name,
+            qty: 1,
+            description: product.description,
+            code: product.code,
+          },
+        });
+        delta.created('items', item.id);
+      }
+
+      return writeLog(tx, {
+        campaignId: ctx.campaign.id,
+        actorUserId: user.id,
+        characterId,
+        type: LogType.ITEM_ADDED,
+        message: `${ctx.character.name} comprou ${product.name} (−${product.price} de ouro)`,
+        delta,
+      });
+    });
+  }
+
+  /**
+   * O jogador usa um item do catálogo. Poções, ração e elixir curam sozinhos;
+   * os demais só gastam o item e registram (o mestre decide o efeito); Corda e
+   * Gazua ficam no inventário. Mesma regra das habilidades: em combate só na
+   * vez, e quem está caído não age.
+   */
+  async useItem(itemId: string, user: AuthUser) {
+    const { ctx, item } = await this.itemCtx(itemId, user, true);
+    this.assertTurn(ctx);
+    if (ctx.character.hp === 0) {
+      throw new BadRequestException(
+        `${ctx.character.name} está caído e não pode agir`,
+      );
+    }
+    const product = shopItem(item.code);
+    if (!product) {
+      throw new BadRequestException('Esse item não pode ser usado');
+    }
+
+    return this.run(ctx.campaign.id, async (tx) => {
+      const delta = new DeltaBuilder();
+
+      if (!product.keep) {
+        const fresh = await tx.inventoryItem.findUnique({
+          where: { id: item.id },
+        });
+        if (!fresh || fresh.qty < 1) {
+          throw new BadRequestException('Você não tem mais esse item');
+        }
+        // gasta 1 direto no banco (dois cliques não gastam a mesma unidade)
+        const spent = await tx.inventoryItem.updateMany({
+          where: { id: item.id, qty: { gte: 1 } },
+          data: { qty: { decrement: 1 } },
+        });
+        if (!spent.count) {
+          throw new BadRequestException('Você não tem mais esse item');
+        }
+        if (fresh.qty === 1) {
+          delta.deletedItem(fresh);
+          await tx.inventoryItem.deleteMany({
+            where: { id: item.id, qty: { lte: 0 } },
+          });
+        } else {
+          delta.itemQty(item.id, -1);
+        }
+      }
+
+      const heals = !!(product.hp || product.mana);
+      let message = `${ctx.character.name} usou ${item.name}`;
+      let type: LogType = product.keep
+        ? LogType.ITEM_UPDATED
+        : LogType.ITEM_REMOVED;
+      if (heals) {
+        const ch = await tx.character.findUniqueOrThrow({
+          where: { id: ctx.character.id },
+        });
+        const { character: after, applied } = await applyStats(
+          tx,
+          ch,
+          { hp: product.hp ?? 0, mana: product.mana ?? 0 },
+          delta,
+        );
+        const gains: string[] = [];
+        const status: string[] = [];
+        if (product.hp) {
+          gains.push(`${applied.hp} de vida`);
+          status.push(`vida ${after.hp}/${after.hpMax}`);
+        }
+        if (product.mana) {
+          gains.push(`${applied.mana} de mana`);
+          status.push(`mana ${after.mana}/${after.manaMax}`);
+        }
+        message += ` e recuperou ${joinPt(gains)} (${status.join(', ')})`;
+        type = product.hp ? LogType.HEAL : LogType.MANA;
+      }
+
+      return writeLog(tx, {
+        campaignId: ctx.campaign.id,
+        actorUserId: user.id,
+        characterId: ctx.character.id,
+        type,
+        message,
         delta,
       });
     });
@@ -1180,7 +776,7 @@ export class GameService {
       // Marca primeiro, condicionado a ainda não ter sido desfeito (evita desfazer 2×).
       const marked = await tx.logEntry.updateMany({
         where: { id: logId, revertedAt: null },
-        data: { revertedAt: new Date(), pendingAction: Prisma.DbNull },
+        data: { revertedAt: new Date() },
       });
       if (!marked.count) {
         throw new BadRequestException('Esse registro já foi desfeito');
@@ -1198,11 +794,6 @@ export class GameService {
       });
     });
     this.realtime.emitLogReverted(entry.campaignId, logId);
-    // desfazer um "Aplicar em…" devolve o botão no registro da habilidade
-    const cleared = (entry.delta as Delta).clearedPending;
-    if (cleared) {
-      await this.realtime.logUpdated(entry.campaignId, cleared.logId);
-    }
     return log;
   }
 
@@ -1287,14 +878,13 @@ export class GameService {
     return { ctx, summon };
   }
 
-  private async itemCtx(itemId: string, user: AuthUser) {
+  /** `owner`: o dono da ficha também pode (usar o item); sem ele, só o mestre. */
+  private async itemCtx(itemId: string, user: AuthUser, owner = false) {
     const item = await this.prisma.inventoryItem.findUnique({
       where: { id: itemId },
     });
     if (!item) throw new NotFoundException('Item não encontrado');
-    const ctx = await this.characterCtx(item.characterId, user, {
-      owner: false,
-    });
+    const ctx = await this.characterCtx(item.characterId, user, { owner });
     return { ctx, item };
   }
 }

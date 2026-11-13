@@ -6,17 +6,12 @@ const props = withDefaults(
   defineProps<{
     logs: LogEntry[]
     canRevert?: boolean
-    /** Mestre: mostra "Aplicar em…" nos efeitos pendentes. */
-    canApply?: boolean
     /** Altura máxima da lista (rola por dentro). */
     maxHeight?: string
   }>(),
-  { canRevert: false, canApply: false, maxHeight: '60vh' },
+  { canRevert: false, maxHeight: '60vh' },
 )
-const emit = defineEmits<{ revert: [entry: LogEntry]; apply: [entry: LogEntry]; discard: [entry: LogEntry] }>()
-
-const hasPending = (e: LogEntry) => !!e.pendingEffect && !e.revertedAt
-const awaitingMaster = (e: LogEntry) => !!e.pendingAction && !e.revertedAt
+const emit = defineEmits<{ revert: [entry: LogEntry] }>()
 
 const ICON: Record<LogType, { icon: string; color: string }> = {
   DAMAGE: { icon: 'mdi-sword-cross', color: 'error' },
@@ -45,7 +40,7 @@ const ICON: Record<LogType, { icon: string; color: string }> = {
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 
-const isCrit = (e: LogEntry) => e.roll === 20 && (e.type === 'ABILITY_USED' || e.type === 'DICE_ROLL')
+const isCrit = (e: LogEntry) => e.roll === 20 && e.type === 'DICE_ROLL'
 
 // Rola para o fim quando chega algo novo, se o usuário já estava no fim.
 const box = ref<HTMLElement | null>(null)
@@ -81,18 +76,6 @@ watch(box, (el) => {
         <div class="entry-meta">
           {{ time(entry.createdAt) }}
           <template v-if="entry.revertedAt"> · desfeito</template>
-        </div>
-        <div v-if="awaitingMaster(entry)" class="pending">
-          <span class="waiting"><v-icon icon="mdi-dice-d20" size="x-small" /> aguardando o mestre</span>
-        </div>
-        <div v-if="hasPending(entry)" class="pending">
-          <template v-if="canApply">
-            <v-btn size="x-small" color="primary" variant="tonal" prepend-icon="mdi-target" @click="emit('apply', entry)">
-              Aplicar em…
-            </v-btn>
-            <v-btn size="x-small" variant="text" @click="emit('discard', entry)">Descartar</v-btn>
-          </template>
-          <span v-else class="waiting"><v-icon icon="mdi-timer-sand" size="x-small" /> aguardando o mestre</span>
         </div>
       </div>
       <v-btn
@@ -160,19 +143,6 @@ watch(box, (el) => {
 .entry-msg {
   line-height: 1.35;
   word-break: break-word;
-}
-
-.pending {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  margin-top: 4px;
-}
-
-.waiting {
-  font-size: 0.8rem;
-  opacity: 0.65;
 }
 
 .entry-meta {

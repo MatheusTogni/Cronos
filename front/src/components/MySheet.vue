@@ -2,20 +2,25 @@
 import { computed, ref, watch } from 'vue'
 import ConditionChip from '@/components/ConditionChip.vue'
 import StatBar from '@/components/StatBar.vue'
+import TransferDialog from '@/components/TransferDialog.vue'
 import UseAbilityDialog from '@/components/UseAbilityDialog.vue'
 import { api } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
+import { useConfirmStore } from '@/stores/confirm'
 import { useNotifyStore } from '@/stores/notify'
-import type { Ability, ActionResult, Character, CharacterClass } from '@/types/api'
-import { frenzyActive, INSTABILITY_CLASS, INSTABILITY_LIMIT, instabilityCritical } from '@/utils/classHooks'
+import type { Ability, ActionResult, Character, CharacterClass, InventoryItem } from '@/types/api'
+import type { TransferMode } from '@/types/ui'
+import { frenzyActive } from '@/utils/classHooks'
+import { shopItem } from '@/utils/shop'
+import { transferSummary } from '@/utils/transfer'
 
 /** Ficha do próprio jogador durante a aventura. */
 const props = defineProps<{ character: Character; cls: CharacterClass }>()
 
 const campaign = useCampaignStore()
+const confirm = useConfirmStore()
 const notify = useNotifyStore()
 
-const basic = computed(() => props.cls.abilities.find((a) => a.kind === 'BASIC'))
 const skills = computed(() => props.cls.abilities.filter((a) => a.kind === 'SKILL'))
 
 // ── usar habilidade ──
@@ -26,15 +31,67 @@ function use(a: Ability) {
   abilityOpen.value = true
 }
 function onUsed(log: ActionResult['log']) {
-  if (!log) return
-  notify.success(log.pendingAction ? `${log.message} O mestre resolve.` : log.message)
+  if (log) notify.success(log.message)
 }
 
 const frenzy = computed(() => frenzyActive(props.character))
-const isTecelao = computed(() => props.character.classId === INSTABILITY_CLASS)
-const waiting = computed(() => campaign.myPendingAction?.pendingAction ?? null)
 
-// Invocações, condições e inventário são controlados pelo mestre: aqui só se vê.
+// Invocações e condições são controladas pelo mestre: aqui só se vê.
+
+// ── usar item do inventário ──
+async function useItem(item: InventoryItem) {
+  const product = shopItem(item.code)
+  if (!product) return
+  const c = props.character
+  // item de cura com tudo o que ele recupera já cheio: pede confirmação antes de gastar
+  const hpFull = !product.hp || c.hp >= c.hpMax
+  const manaFull = !product.mana || c.mana >= c.manaMax
+  if ((product.hp || product.mana) && hpFull && manaFull) {
+    const what = product.hp && product.mana ? 'Sua vida e sua mana já estão cheias' : product.hp ? `Sua vida já está cheia (${c.hp}/${c.hpMax})` : `Sua mana já está cheia (${c.mana}/${c.manaMax})`
+    const ok = await confirm.ask({
+      title: `Usar ${item.name}?`,
+      text: `${what}. O item será gasto sem efeito.`,
+      confirmLabel: 'Usar mesmo assim',
+      icon: 'mdi-flask-round-bottom',
+      color: 'warning',
+    })
+    if (!ok) return
+  }
+  const result = { log: null as ActionResult['log'] }
+  const ok = await campaign.act(async () => {
+    const res = await api.post<ActionResult>(`/items/${item.id}/use`)
+    result.log = res.data.log
+    return res
+  })
+  if (ok && result.log) notify.success(result.log.message)
+}
+
+// ── doar e trocar ──
+const transferOpen = ref(false)
+const transferMode = ref<TransferMode>('give')
+const transferItem = ref<InventoryItem | null>(null)
+function openTransfer(mode: TransferMode, item: InventoryItem | null = null) {
+  transferMode.value = mode
+  transferItem.value = item
+  transferOpen.value = true
+}
+/** Por que Dar/Trocar/Dar ouro estão desligados agora (vazio = liberado). */
+const offerBlock = computed(() =>
+  campaign.outgoingTransfer
+    ? 'Você já tem uma oferta aguardando resposta'
+    : !campaign.canOffer
+      ? 'Em combate, só na sua vez'
+      : '',
+)
+const cancelling = ref(false)
+async function cancelOffer() {
+  const offer = campaign.outgoingTransfer
+  if (!offer) return
+  cancelling.value = true
+  const ok = await campaign.act(() => api.post(`/transfers/${offer.id}/cancel`).then(() => ({ data: null })))
+  cancelling.value = false
+  if (ok) campaign.dropTransfer(offer.id)
+}
 
 // ── anotações ──
 const notes = ref(props.character.notes)
@@ -74,19 +131,37 @@ async function saveNotes() {
     <div class="bars">
       <StatBar label="Vida" icon="mdi-heart" :value="character.hp" :max="character.hpMax" color="error" size="lg" />
       <StatBar label="Mana" icon="mdi-water" :value="character.mana" :max="character.manaMax" color="info" size="lg" />
-      <StatBar
-        v-if="isTecelao"
-        label="Instabilidade temporal"
-        icon="mdi-timer-sand"
-        :value="character.instability"
-        :max="INSTABILITY_LIMIT"
-        :color="instabilityCritical(character) ? 'error' : 'secondary'"
-        size="md"
-      />
     </div>
-    <p v-if="isTecelao && instabilityCritical(character)" class="warn">
-      O tempo está por um fio: mais um uso e vem o paradoxo.
-    </p>
+    <div class="purse">
+      <v-icon icon="mdi-circle-multiple" color="secondary" />
+      <span class="purse-num">{{ character.gold }}</span>
+      <span class="purse-lbl">{{ character.gold === 1 ? 'moeda de ouro' : 'moedas de ouro' }}</span>
+      <v-btn
+        size="x-small"
+        variant="tonal"
+        prepend-icon="mdi-gift-outline"
+        :disabled="character.gold < 1 || !!offerBlock"
+        :title="offerBlock || 'Dar ouro a outro jogador'"
+        @click="openTransfer('gold')"
+      >
+        Dar ouro
+      </v-btn>
+    </div>
+
+    <v-alert
+      v-if="campaign.outgoingTransfer"
+      type="info"
+      variant="tonal"
+      density="compact"
+      icon="mdi-timer-sand"
+      class="mt-3"
+    >
+      Aguardando {{ campaign.outgoingTransfer.to.name }} responder: {{ transferSummary(campaign.outgoingTransfer) }}
+      <template #append>
+        <v-btn size="small" variant="text" :loading="cancelling" @click="cancelOffer">Cancelar oferta</v-btn>
+      </template>
+    </v-alert>
+
     <p v-if="frenzy" class="frenzy-note">
       <v-icon icon="mdi-flash" size="small" /> Frenesi: ferido, você fica mais perigoso e ignora parte da dor.
     </p>
@@ -111,14 +186,9 @@ async function saveNotes() {
       <p v-else-if="!campaign.canAct" class="wait">
         <v-icon icon="mdi-timer-sand" size="small" /> Aguarde a sua vez para usar habilidades.
       </p>
-      <p v-if="waiting" class="wait">
-        <v-icon icon="mdi-dice-d20" size="small" />
-        Aguardando o mestre: {{ waiting.abilityName }}<template v-if="waiting.target">
-          em {{ waiting.target.kind === 'self' ? 'si mesmo' : waiting.target.name }}</template>.
-      </p>
       <div class="abilities">
         <button
-          v-for="a in [basic, ...skills].filter((x): x is Ability => !!x)"
+          v-for="a in skills"
           :key="a.id"
           type="button"
           class="ability"
@@ -129,7 +199,7 @@ async function saveNotes() {
             <template v-if="a.manaCost">
               <span class="ab-num">{{ a.manaCost }}</span><span class="ab-lbl">mana</span>
             </template>
-            <v-icon v-else icon="mdi-sword" />
+            <v-icon v-else icon="mdi-auto-fix" />
           </div>
           <div class="ab-body">
             <div class="ab-name">{{ a.name }}</div>
@@ -159,17 +229,48 @@ async function saveNotes() {
       </div>
     </section>
 
-    <!-- inventário (só leitura: quem dá e tira itens é o mestre) -->
+    <!-- inventário: usar o que é da loja, dar ou trocar com outro jogador (o mestre também dá e tira itens) -->
     <section class="block">
       <h3>Inventário</h3>
       <div v-if="!character.inventory.length" class="empty">Mochila vazia.</div>
-      <div v-for="item in character.inventory" :key="item.id" class="row-item">
+      <div v-for="item in character.inventory" :key="item.id" class="row-item item-row">
         <v-icon icon="mdi-bag-personal-outline" />
         <div class="row-main">
           <div>{{ item.name }}</div>
           <div v-if="item.description" class="row-desc">{{ item.description }}</div>
         </div>
         <span class="qty-num" :title="`${item.qty} unidade(s)`">×{{ item.qty }}</span>
+        <div class="item-actions">
+          <v-btn
+            v-if="shopItem(item.code)"
+            size="x-small"
+            color="secondary"
+            variant="tonal"
+            :disabled="!campaign.canAct"
+            :title="campaign.canAct ? `Usar ${item.name}` : 'Só na sua vez, e não caído'"
+            @click="useItem(item)"
+          >
+            Usar
+          </v-btn>
+          <v-btn
+            icon="mdi-gift-outline"
+            size="x-small"
+            variant="text"
+            :disabled="!!offerBlock"
+            :title="offerBlock || `Dar ${item.name} a outro jogador`"
+            :aria-label="`Dar ${item.name}`"
+            @click="openTransfer('give', item)"
+          />
+          <v-btn
+            icon="mdi-swap-horizontal"
+            size="x-small"
+            variant="text"
+            :disabled="!!offerBlock"
+            :title="offerBlock || `Trocar ${item.name} com outro jogador`"
+            :aria-label="`Trocar ${item.name}`"
+            @click="openTransfer('trade', item)"
+          />
+        </div>
       </div>
     </section>
 
@@ -185,6 +286,7 @@ async function saveNotes() {
     </section>
 
     <UseAbilityDialog v-model="abilityOpen" :character="character" :ability="selectedAbility" @used="onUsed" />
+    <TransferDialog v-model="transferOpen" :character="character" :item="transferItem" :mode="transferMode" />
   </div>
 </template>
 
@@ -213,6 +315,35 @@ async function saveNotes() {
 .bars {
   display: grid;
   gap: 12px;
+}
+
+.purse {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.purse-num {
+  font-family: var(--font-title);
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--gold-bright);
+}
+
+.purse-lbl {
+  flex: 1 1 auto;
+  opacity: 0.7;
+}
+
+.item-row {
+  flex-wrap: wrap;
+}
+
+.item-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .block {
@@ -378,12 +509,6 @@ h3 {
   justify-content: flex-end;
   margin-top: 6px;
   min-height: 28px;
-}
-
-.warn {
-  margin: 8px 0 0;
-  font-size: 0.9rem;
-  color: rgb(var(--v-theme-error));
 }
 
 .frenzy-note {

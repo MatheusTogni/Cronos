@@ -1,30 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Ability, CharacterClass, Crit } from '@/types/api'
+import type { CharacterClass, Crit } from '@/types/api'
 
 /** Ficha completa de uma classe (texto estruturado, legível no celular). */
 const props = defineProps<{ cls: CharacterClass }>()
 
-const basic = computed(() => props.cls.abilities.find((a) => a.kind === 'BASIC'))
 const skills = computed(() => props.cls.abilities.filter((a) => a.kind === 'SKILL'))
 
 const critLabel = (c: Crit) =>
   c.min === c.max ? `${c.min}` : c.max === 20 ? `${c.min}+` : `${c.min}–${c.max}`
-
-const effectHint = (a: Ability) => {
-  switch (a.effect) {
-    case 'SUMMON':
-      return 'Cria uma invocação na sua ficha'
-    case 'SACRIFICE_SUMMON':
-      return 'Consome a sua invocação'
-    case 'SELF_CONDITION':
-      return 'Aplica uma condição em você'
-    case 'TARGET_CONDITION':
-      return 'Pode aplicar uma condição no alvo'
-    default:
-      return null
-  }
-}
 </script>
 
 <template>
@@ -57,14 +41,6 @@ const effectHint = (a: Ability) => {
       <p class="pre-line">{{ cls.mechanicText }}</p>
     </section>
 
-    <section v-if="basic">
-      <h3>Ataque básico</h3>
-      <div class="ability">
-        <div class="ability-name">{{ basic.name }}</div>
-        <p class="pre-line">{{ basic.description }}</p>
-      </div>
-    </section>
-
     <section>
       <h3>Skills</h3>
       <div v-for="skill in skills" :key="skill.id" class="ability skill">
@@ -80,9 +56,6 @@ const effectHint = (a: Ability) => {
               <strong class="accent">{{ critLabel(c) }}:</strong> {{ c.text }}
             </li>
           </ul>
-          <div v-if="effectHint(skill)" class="effect">
-            <v-icon icon="mdi-auto-fix" size="small" /> {{ effectHint(skill) }}
-          </div>
         </div>
       </div>
     </section>
@@ -197,13 +170,6 @@ p {
   list-style: none;
   padding: 0;
   margin: 6px 0 0;
-}
-
-.effect {
-  margin-top: 6px;
-  font-size: 0.9rem;
-  opacity: 0.75;
-  font-style: italic;
 }
 
 .base-stats {

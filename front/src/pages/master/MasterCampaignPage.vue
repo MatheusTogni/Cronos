@@ -2,7 +2,6 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AdjustDialog from '@/components/AdjustDialog.vue'
-import ApplyEffectDialog from '@/components/ApplyEffectDialog.vue'
 import CharacterCard from '@/components/CharacterCard.vue'
 import CombatPanel from '@/components/CombatPanel.vue'
 import ConditionDialog from '@/components/ConditionDialog.vue'
@@ -10,7 +9,6 @@ import DiceRoller from '@/components/DiceRoller.vue'
 import ImagesPanel from '@/components/ImagesPanel.vue'
 import LogFeed from '@/components/LogFeed.vue'
 import NpcCard from '@/components/NpcCard.vue'
-import PendingActions from '@/components/PendingActions.vue'
 import QuickFormDialog from '@/components/QuickFormDialog.vue'
 import { api } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
@@ -245,18 +243,6 @@ async function removeNpc(n: Npc) {
   if (ok) await campaign.act(() => api.delete<ActionResult>(`/npcs/${n.id}`))
 }
 
-// ── efeito pendente ("Aplicar em…") ──
-const applyOpen = ref(false)
-// pelo id: acompanha o log ao vivo sem vigiar os 300 registros a fundo
-const applyId = ref<string | null>(null)
-const applyEntry = computed(() => (applyId.value ? (campaign.logs.find((l) => l.id === applyId.value) ?? null) : null))
-function openApply(entry: LogEntry) {
-  applyId.value = entry.id
-  applyOpen.value = true
-}
-const discardPending = (entry: LogEntry) =>
-  campaign.act(() => api.delete(`/logs/${entry.id}/pending`).then(() => ({ data: null })))
-
 const removeCondition = (conditionId: string) =>
   campaign.act(() => api.delete<ActionResult>(`/conditions/${conditionId}`))
 const removeSummon = (summonId: string) => campaign.act(() => api.delete<ActionResult>(`/summons/${summonId}`))
@@ -273,6 +259,17 @@ async function sendNote() {
 }
 
 const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/logs/${entry.id}/revert`))
+
+// ── mercador ──
+const shopBusy = ref(false)
+async function toggleShop() {
+  if (!state.value) return
+  shopBusy.value = true
+  await campaign.act(() =>
+    api.post<ActionResult>(`/campaigns/${id.value}/shop/${state.value?.shopOpen ? 'close' : 'open'}`),
+  )
+  shopBusy.value = false
+}
 </script>
 
 <template>
@@ -372,8 +369,6 @@ const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/
           <!-- aventura / encerrada -->
           <div v-else class="table-grid">
             <div class="main-col">
-              <PendingActions v-if="state.status === 'ACTIVE'" />
-
               <section v-if="state.status === 'ACTIVE' || state.npcs.length" class="enemies">
                 <div class="section-head">
                   <span class="side-title">Inimigos</span>
@@ -430,6 +425,7 @@ const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/
                     <v-btn size="small" color="success" variant="tonal" prepend-icon="mdi-heart-plus" @click="adjust(c, 'heal')">Cura</v-btn>
                     <v-btn size="small" color="info" variant="tonal" prepend-icon="mdi-water" @click="adjust(c, 'mana')">Mana</v-btn>
                     <v-btn size="small" color="secondary" variant="tonal" prepend-icon="mdi-star-four-points" @click="adjust(c, 'xp')">XP</v-btn>
+                    <v-btn size="small" color="warning" variant="tonal" prepend-icon="mdi-circle-multiple" @click="adjust(c, 'gold')">Ouro</v-btn>
                     <v-menu>
                       <template #activator="{ props }">
                         <v-btn v-bind="props" size="small" variant="text" icon="mdi-dots-horizontal" :aria-label="`Mais ações para ${c.name}`" />
@@ -450,6 +446,23 @@ const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/
               <v-card v-if="state.status === 'ACTIVE'" class="card-frame pa-4" color="surface">
                 <div class="side-title">Combate</div>
                 <CombatPanel />
+              </v-card>
+
+              <v-card v-if="state.status === 'ACTIVE'" class="card-frame pa-4" color="surface">
+                <div class="side-title">Mercador</div>
+                <p class="shop-hint">
+                  {{ state.shopOpen ? 'A loja está aberta: os jogadores veem o estande e podem comprar.' : 'Abra a loja para os jogadores gastarem o ouro.' }}
+                </p>
+                <v-btn
+                  block
+                  :color="state.shopOpen ? undefined : 'secondary'"
+                  :variant="state.shopOpen ? 'tonal' : 'flat'"
+                  :prepend-icon="state.shopOpen ? 'mdi-door-closed' : 'mdi-storefront-outline'"
+                  :loading="shopBusy"
+                  @click="toggleShop"
+                >
+                  {{ state.shopOpen ? 'Fechar loja' : 'Abrir loja' }}
+                </v-btn>
               </v-card>
 
               <v-card v-if="state.status === 'ACTIVE'" class="card-frame pa-4" color="surface">
@@ -477,11 +490,8 @@ const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/
                 <LogFeed
                   :logs="campaign.logs"
                   :can-revert="state.status === 'ACTIVE'"
-                  :can-apply="state.status === 'ACTIVE'"
                   max-height="55vh"
                   @revert="revert"
-                  @apply="openApply"
-                  @discard="discardPending"
                 />
               </v-card>
 
@@ -508,7 +518,6 @@ const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/
 
     <AdjustDialog v-model="adjustOpen" :character="target" :kind="adjustKind" />
     <ConditionDialog v-model="conditionOpen" :target="conditionTarget" />
-    <ApplyEffectDialog v-model="applyOpen" :entry="applyEntry" />
     <QuickFormDialog
       v-model="formOpen"
       :title="FORMS[formKind].title"
@@ -537,6 +546,12 @@ const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/
 .empty {
   opacity: 0.6;
   font-style: italic;
+}
+
+.shop-hint {
+  margin: 0 0 10px;
+  opacity: 0.7;
+  font-size: 0.9rem;
 }
 
 .lobby-head {

@@ -26,8 +26,6 @@ export const logSelect = {
   createdAt: true,
   revertedAt: true,
   delta: true,
-  pendingEffect: true,
-  pendingAction: true,
   actor: { select: { id: true, displayName: true } },
 } satisfies Prisma.LogEntrySelect;
 
@@ -49,18 +47,14 @@ export const toLogDto = (
 
 /**
  * Escolhe a mensagem de quem vai ler: o mestre vê a completa, os jogadores a
- * narrada. O d20 de uma habilidade é do mestre (vira o dano); a rolagem de
- * dados avulsa (DICE_ROLL) continua pública.
+ * narrada.
  */
 export function logView(log: LogDto, audience: Audience): LogView {
   const { masterMessage, ...rest } = log;
-  if (audience === 'master') {
-    return { ...rest, message: masterMessage ?? log.message };
-  }
   return {
     ...rest,
-    message: log.message,
-    roll: log.type === 'ABILITY_USED' ? null : log.roll,
+    message:
+      audience === 'master' ? (masterMessage ?? log.message) : log.message,
   };
 }
 
@@ -115,6 +109,8 @@ export async function buildCampaignState(
     startedAt: c.startedAt,
     endedAt: c.endedAt,
     master: c.master,
+    /** Loja do mercador aberta para os jogadores. */
+    shopOpen: c.shopOpen,
     combat: c.inCombat
       ? {
           round: c.round,

@@ -9,6 +9,8 @@ import LogFeed from '@/components/LogFeed.vue'
 import MySheet from '@/components/MySheet.vue'
 import NpcCard from '@/components/NpcCard.vue'
 import PlayerLobby from '@/components/PlayerLobby.vue'
+import ShopOverlay from '@/components/ShopOverlay.vue'
+import TransferInbox from '@/components/TransferInbox.vue'
 import TurnBar from '@/components/TurnBar.vue'
 import { useCampaignStore } from '@/stores/campaign'
 import { useClassesStore } from '@/stores/classes'
@@ -67,15 +69,20 @@ watch(
   },
 )
 
-// o mestre resolveu (ou negou) a ação que o jogador tinha declarado
+// o mestre abre a loja: as portas se abrem na tela; ao fechar, a loja some com um aviso
+const shopVisible = ref(false)
 watch(
-  () => campaign.myPendingAction?.id ?? null,
-  (now, before) => {
-    if (before && !now) {
-      notify.info('O mestre resolveu a sua ação')
-      buzz(120)
+  () => state.value?.shopOpen,
+  (open, before) => {
+    if (open) {
+      shopVisible.value = true
+      if (before === false) buzz(120)
+    } else {
+      shopVisible.value = false
+      if (before) notify.info('O mercador fechou as portas')
     }
   },
+  { immediate: true },
 )
 
 // avisa de mudanças na própria ficha feitas por outros (dano do mestre, máscara…)
@@ -133,6 +140,17 @@ watch(tab, (t) => {
       <!-- aventura -->
       <template v-else-if="state.status === 'ACTIVE'">
         <TurnBar />
+        <v-btn
+          v-if="state.shopOpen && !shopVisible"
+          block
+          color="secondary"
+          variant="tonal"
+          prepend-icon="mdi-storefront-outline"
+          class="mb-4"
+          @click="shopVisible = true"
+        >
+          A loja do mercador está aberta
+        </v-btn>
         <v-tabs v-model="tab" color="secondary" grow class="mb-4">
           <v-tab value="ficha" prepend-icon="mdi-card-account-details">Ficha</v-tab>
           <v-tab value="party" prepend-icon="mdi-account-group">Party</v-tab>
@@ -180,6 +198,8 @@ watch(tab, (t) => {
       </template>
 
       <ImageOverlay :image="state.shownImage" />
+      <ShopOverlay v-if="state.status === 'ACTIVE'" v-model="shopVisible" />
+      <TransferInbox v-if="state.status === 'ACTIVE'" />
       <LevelUpEffect :level="me?.level" :hp-per-level="HP_PER_LEVEL" />
     </template>
   </div>

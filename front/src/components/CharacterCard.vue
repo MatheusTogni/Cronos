@@ -2,7 +2,7 @@
 import ConditionChip from '@/components/ConditionChip.vue'
 import StatBar from '@/components/StatBar.vue'
 import type { Character, CharacterClass } from '@/types/api'
-import { frenzyActive, INSTABILITY_CLASS, INSTABILITY_LIMIT, instabilityCritical } from '@/utils/classHooks'
+import { frenzyActive } from '@/utils/classHooks'
 
 /** Resumo de um personagem para a visão da party (mestre e jogadores). */
 withDefaults(
@@ -47,15 +47,6 @@ const emit = defineEmits<{ removeCondition: [id: string] }>()
     <div class="bars">
       <StatBar label="Vida" icon="mdi-heart" :value="character.hp" :max="character.hpMax" color="error" />
       <StatBar label="Mana" icon="mdi-water" :value="character.mana" :max="character.manaMax" color="info" />
-      <StatBar
-        v-if="character.classId === INSTABILITY_CLASS"
-        label="Instabilidade"
-        icon="mdi-timer-sand"
-        :value="character.instability"
-        :max="INSTABILITY_LIMIT"
-        :color="instabilityCritical(character) ? 'error' : 'secondary'"
-        size="sm"
-      />
     </div>
 
     <div v-if="character.conditions.length" class="chips">
@@ -89,6 +80,7 @@ const emit = defineEmits<{ removeCondition: [id: string] }>()
 
     <div class="foot">
       <span title="Experiência"><v-icon icon="mdi-star-four-points" size="x-small" /> {{ character.xp }} XP</span>
+      <span title="Moedas de ouro"><v-icon icon="mdi-circle-multiple" size="x-small" /> {{ character.gold }}</span>
       <span v-if="character.inventory.length" title="Itens">
         <v-icon icon="mdi-bag-personal" size="x-small" /> {{ character.inventory.length }}
       </span>

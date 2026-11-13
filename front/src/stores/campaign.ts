@@ -5,7 +5,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useClassesStore } from '@/stores/classes'
 import { useNotifyStore } from '@/stores/notify'
 import { useRealtimeStore } from '@/stores/realtime'
-import type { ActionResult, CampaignPatch, CampaignState, ListPatch, LogEntry } from '@/types/api'
+import type { ActionResult, CampaignPatch, CampaignState, ListPatch, LogEntry, Transfer } from '@/types/api'
+import { buzz } from '@/utils/haptics'
 
 type StateWithLogs = CampaignState & { logs: LogEntry[] }
 
@@ -53,11 +54,20 @@ export const useCampaignStore = defineStore('campaign', () => {
     () => !!combat.value && !!myCharacter.value && currentTurnCharacter.value?.id === myCharacter.value.id,
   )
 
-  /** Ações declaradas pelos jogadores que esperam o mestre (d20, dano ou confirmação). */
-  const pendingActions = computed(() => logs.value.filter((l) => l.pendingAction && !l.revertedAt))
-  const myPendingAction = computed(
-    () => pendingActions.value.find((l) => l.pendingAction!.characterId === myCharacter.value?.id) ?? null,
+  // ── doações e trocas ──
+  /** Ofertas abertas em que o meu personagem oferece ou recebe. */
+  const transfers = ref<Transfer[]>([])
+  /** Ofertas que esperam a minha resposta (a mais antiga aparece primeiro no popup). */
+  const incomingTransfers = computed(() =>
+    transfers.value.filter((t) => t.to.id === myCharacter.value?.id),
   )
+  const incomingTransfer = computed(() => incomingTransfers.value[0] ?? null)
+  /** A oferta minha que espera resposta (só uma por vez). */
+  const outgoingTransfer = computed(
+    () => transfers.value.find((t) => t.from.id === myCharacter.value?.id) ?? null,
+  )
+  /** Fora de combate qualquer um oferece; em combate, só quem está na vez. */
+  const canOffer = computed(() => !combat.value || isMyTurn.value)
 
   const characterById = (id: string | null | undefined) =>
     state.value?.characters.find((c) => c.id === id) ?? null
@@ -109,6 +119,44 @@ export const useCampaignStore = defineStore('campaign', () => {
     const id = campaignId.value
     const { data } = await api.get<StateWithLogs>(`/campaigns/${id}/state`)
     if (campaignId.value === id) apply(data)
+    await loadTransfers()
+  }
+
+  /** Recarrega as ofertas abertas (ao abrir a tela e ao reconectar). */
+  async function loadTransfers() {
+    const id = campaignId.value
+    if (!id) return
+    try {
+      const { data } = await api.get<{ transfers: Transfer[] }>(`/campaigns/${id}/transfers`)
+      if (campaignId.value === id) transfers.value = data.transfers
+    } catch {
+      /* o próximo evento corrige */
+    }
+  }
+
+  /** Tira a oferta da lista na hora (o aviso do servidor confirma depois). */
+  function dropTransfer(transferId: string) {
+    transfers.value = transfers.value.filter((t) => t.id !== transferId)
+  }
+
+  /** Oferta nova ou alterada, vinda do servidor só para os dois jogadores. */
+  function onTransfer(t: Transfer, fresh: boolean) {
+    if (t.campaignId !== campaignId.value) return
+    const mine = myCharacter.value?.id
+    const i = transfers.value.findIndex((x) => x.id === t.id)
+    if (t.status === 'PENDING') {
+      if (i >= 0) transfers.value[i] = t
+      else transfers.value.push(t)
+      if (fresh && t.to.id === mine) buzz([150, 80, 150]) // o popup aparece sozinho
+      return
+    }
+    if (i >= 0) transfers.value.splice(i, 1)
+    if (t.from.id === mine) {
+      if (t.status === 'ACCEPTED') notify.success(`${t.to.name} aceitou a oferta`)
+      else if (t.status === 'DECLINED') notify.info(`${t.to.name} recusou a oferta`)
+    } else if (t.to.id === mine && t.status === 'CANCELLED') {
+      notify.info(`${t.from.name} cancelou a oferta`)
+    }
   }
 
   // ── socket ──
@@ -123,10 +171,8 @@ export const useCampaignStore = defineStore('campaign', () => {
         if (p.id === campaignId.value) applyPatch(p)
       }),
       realtime.on<LogEntry>('log:new', (entry) => pushLog(entry)),
-      realtime.on<LogEntry>('log:updated', (entry) => {
-        const i = logs.value.findIndex((l) => l.id === entry.id)
-        if (i >= 0) logs.value[i] = entry
-      }),
+      realtime.on<Transfer>('transfer:new', (t) => onTransfer(t, true)),
+      realtime.on<Transfer>('transfer:updated', (t) => onTransfer(t, false)),
       realtime.on<{ id: string }>('log:reverted', ({ id }) => {
         const entry = logs.value.find((l) => l.id === id)
         if (entry) {
@@ -177,6 +223,7 @@ export const useCampaignStore = defineStore('campaign', () => {
     campaignId.value = null
     state.value = null
     logs.value = []
+    transfers.value = []
   }
 
   /**
@@ -214,8 +261,12 @@ export const useCampaignStore = defineStore('campaign', () => {
     canAct,
     fallen,
     isMyTurn,
-    pendingActions,
-    myPendingAction,
+    transfers,
+    incomingTransfers,
+    incomingTransfer,
+    outgoingTransfer,
+    canOffer,
+    dropTransfer,
     open,
     close,
     refresh,

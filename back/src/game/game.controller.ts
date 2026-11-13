@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   HttpCode,
   Param,
   ParseUUIDPipe,
@@ -14,25 +15,25 @@ import { CurrentUser } from '../auth/decorators';
 import {
   AdjustDto,
   AdjustSummonDto,
-  ApplyPendingDto,
+  BuyDto,
   CreateConditionDto,
   CreateItemDto,
   CreateNpcDto,
   CreateSummonDto,
   NextTurnDto,
   NoteDto,
+  OfferDto,
   RollDto,
   TurnOrderDto,
   UpdateCharacterDto,
   UpdateItemDto,
   UpdateNpcDto,
   UpdateSummonDto,
-  UseAbilityDto,
-  ResolveActionDto,
 } from './dto';
 import { CombatService } from './combat.service';
 import { GameService } from './game.service';
 import { NpcsService } from './npcs.service';
+import { TransfersService } from './transfers.service';
 
 const Id = () => new ParseUUIDPipe({ version: '4' });
 
@@ -46,6 +47,7 @@ export class GameController {
     private readonly game: GameService,
     private readonly combat: CombatService,
     private readonly npcs: NpcsService,
+    private readonly transfers: TransfersService,
   ) {}
 
   // ── personagem ──
@@ -55,10 +57,9 @@ export class GameController {
   useAbility(
     @Param('id', Id()) id: string,
     @Param('abilityId', Id()) abilityId: string,
-    @Body() dto: UseAbilityDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.game.useAbility(id, abilityId, dto, user);
+    return this.game.useAbility(id, abilityId, user);
   }
 
   @Post('characters/:id/adjust')
@@ -212,6 +213,73 @@ export class GameController {
     return this.game.removeItem(id, user);
   }
 
+  @Post('items/:id/use')
+  @HttpCode(200)
+  useItem(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
+    return this.game.useItem(id, user);
+  }
+
+  // ── loja do mercador ──
+
+  @Post('campaigns/:id/shop/open')
+  @HttpCode(200)
+  openShop(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
+    return this.game.setShop(id, true, user);
+  }
+
+  @Post('campaigns/:id/shop/close')
+  @HttpCode(200)
+  closeShop(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
+    return this.game.setShop(id, false, user);
+  }
+
+  @Post('characters/:id/shop/buy')
+  @HttpCode(200)
+  buy(
+    @Param('id', Id()) id: string,
+    @Body() dto: BuyDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.game.buy(id, dto, user);
+  }
+
+  // ── doações e trocas entre jogadores ──
+
+  @Post('characters/:id/transfers')
+  offer(
+    @Param('id', Id()) id: string,
+    @Body() dto: OfferDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.transfers.offer(id, dto, user);
+  }
+
+  @Get('campaigns/:id/transfers')
+  myTransfers(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
+    return this.transfers.mine(id, user);
+  }
+
+  @Post('transfers/:id/accept')
+  @HttpCode(200)
+  acceptTransfer(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
+    return this.transfers.accept(id, user);
+  }
+
+  @Post('transfers/:id/decline')
+  @HttpCode(200)
+  declineTransfer(
+    @Param('id', Id()) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.transfers.decline(id, user);
+  }
+
+  @Post('transfers/:id/cancel')
+  @HttpCode(200)
+  cancelTransfer(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
+    return this.transfers.cancel(id, user);
+  }
+
   // ── mesa ──
 
   @Post('campaigns/:id/roll')
@@ -265,40 +333,7 @@ export class GameController {
     return this.combat.setOrder(id, dto, user);
   }
 
-  // ── ação declarada (o mestre digita o d20 ou nega) ──
-
-  @Post('logs/:id/resolve')
-  @HttpCode(200)
-  resolveAction(
-    @Param('id', Id()) id: string,
-    @Body() dto: ResolveActionDto,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.game.resolveAction(id, dto, user);
-  }
-
-  @Post('logs/:id/deny')
-  @HttpCode(200)
-  denyAction(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
-    return this.game.denyAction(id, user);
-  }
-
-  // ── efeito pendente ("Aplicar em…") ──
-
-  @Post('logs/:id/apply')
-  @HttpCode(200)
-  applyPending(
-    @Param('id', Id()) id: string,
-    @Body() dto: ApplyPendingDto,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.game.applyPending(id, dto, user);
-  }
-
-  @Delete('logs/:id/pending')
-  discardPending(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
-    return this.game.discardPending(id, user);
-  }
+  // ── log ──
 
   @Post('logs/:id/revert')
   @HttpCode(200)

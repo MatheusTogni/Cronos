@@ -24,14 +24,6 @@ enum AbilityKind {
   SKILL
 }
 
-/// Efeito automático aplicado ao usar a habilidade (além de descontar mana e gerar log).
-enum AbilityEffect {
-  SUMMON // cria uma invocação no personagem
-  SACRIFICE_SUMMON // consome uma invocação existente
-  SELF_CONDITION // aplica condição no próprio personagem
-  TARGET_CONDITION // aplica condição no personagem-alvo (quando o alvo é alguém da party)
-}
-
 enum LogType {
   DAMAGE
   HEAL
@@ -54,6 +46,19 @@ enum LogType {
   NPC_CREATED
   NPC_UPDATED
   NPC_REMOVED
+}
+
+/// Doação (item ou ouro, sem nada em troca) ou troca (item por item) entre jogadores.
+enum TransferKind {
+  GIFT
+  TRADE
+}
+
+enum TransferStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
 }
 
 /// Se a condição ajuda (BUFF), atrapalha (DEBUFF) ou depende do alvo (NEUTRAL).
@@ -100,6 +105,9 @@ model Campaign {
   /// Ordem dos personagens no combate (ids). O mestre sempre abre a rodada.
   turnOrder String[] @default([])
 
+  /// Loja do mercador aberta para os jogadores.
+  shopOpen Boolean @default(false)
+
   master     User             @relation(fields: [masterId], references: [id])
   shownImage CampaignImage?   @relation("ShownImage", fields: [shownImageId], references: [id], onDelete: SetNull)
   images     CampaignImage[]  @relation("CampaignImages")
@@ -107,6 +115,7 @@ model Campaign {
   characters Character[]
   npcs       Npc[]
   logEntries LogEntry[]
+  transfers  Transfer[]
 
   @@map("campaigns")
 }
@@ -134,7 +143,6 @@ model CharacterClass {
   mechanicText String
   baseHp       Int
   baseMana     Int
-  maxSummons   Int      @default(0)
   color        String // cor de destaque da ficha (hex)
   artFile      String // caminho público da arte, ex.: "/classes/necromante.png"
   sortOrder    Int      @default(0)
@@ -145,23 +153,17 @@ model CharacterClass {
   @@map("character_classes")
 }
 
+/// Usar a habilidade só gasta a mana e grava no log; o mestre resolve o resto.
 model Ability {
-  id          String         @id @default(uuid())
+  id          String      @id @default(uuid())
   classId     String
   kind        AbilityKind
   name        String
-  manaCost    Int            @default(0)
-  /// Ataque: o valor do d20 (digitado pelo mestre) vira o dano no alvo.
-  dealsDamage Boolean        @default(false)
-  /// Pergunta feita ao jogador antes de usar (ex.: "O que você aposta?"); a resposta vai no log.
-  prompt      String?
+  manaCost    Int         @default(0)
   description String
-  /// Lista de faixas de crítico: [{ "min": 18, "max": 20, "text": "..." }]
+  /// Faixas de crítico, só como texto de referência: [{ "min": 18, "max": 20, "text": "..." }]
   crits       Json?
-  effect      AbilityEffect?
-  /// Parâmetros do efeito, ex.: { "name": "Máscara da Serenidade", "exclusiveGroup": "mascara" }
-  effectData  Json?
-  sortOrder   Int            @default(0)
+  sortOrder   Int         @default(0)
 
   class CharacterClass @relation(fields: [classId], references: [id], onDelete: Cascade)
 
@@ -181,8 +183,8 @@ model Character {
   hpMax      Int
   mana       Int
   manaMax    Int
-  /// Instabilidade temporal (Tecelão do Tempo): sobe a cada uso e rompe em paradoxo no limite.
-  instability Int     @default(0)
+  /// Moedas de ouro: 3 a cada combate encerrado; gasta na loja ou doa a outro jogador.
+  gold       Int      @default(0)
   notes      String   @default("")
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -194,6 +196,8 @@ model Character {
   conditions Condition[]
   inventory  InventoryItem[]
   logEntries LogEntry[]
+  sentTransfers     Transfer[] @relation("TransferFrom")
+  receivedTransfers Transfer[] @relation("TransferTo")
 
   @@unique([campaignId, userId])
   @@map("characters")
@@ -236,13 +240,6 @@ model ConditionDef {
   name           String
   description    String
   polarity       ConditionPolarity @default(NEUTRAL)
-  /// Duração padrão em turnos de quem carrega; null = até alguém remover.
-  turns          Int?
-  /// Vida por turno, aplicada no fim do turno de quem carrega (negativo = dano).
-  hpPerTurn      Int               @default(0)
-  /// Quem carrega perde a vez.
-  skipsTurn      Boolean           @default(false)
-  exclusiveGroup String?
   sortOrder      Int               @default(0)
 
   conditions Condition[]
@@ -259,13 +256,7 @@ model Condition {
   name           String
   description    String?
   source         String? // quem aplicou (texto livre ou nome do personagem)
-  exclusiveGroup String? // ex.: "mascara" — só uma condição do grupo por alvo
-  duration       String? // legado: texto livre de antes dos turnos
   polarity       ConditionPolarity @default(NEUTRAL)
-  /// Turnos restantes de quem carrega; desconta no fim do turno dele. null = sem prazo.
-  turnsLeft      Int?
-  hpPerTurn      Int               @default(0)
-  skipsTurn      Boolean           @default(false)
   createdAt      DateTime          @default(now())
 
   character Character?    @relation(fields: [characterId], references: [id], onDelete: Cascade)
@@ -282,11 +273,45 @@ model InventoryItem {
   name        String
   qty         Int      @default(1)
   description String?
+  /// Item do catálogo da loja (ver game/shop.ts), p.ex. "POTION_HEALTH". Null = item dado à mão pelo mestre.
+  code        String?
   createdAt   DateTime @default(now())
 
   character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
 
   @@map("inventory_items")
+}
+
+/// Oferta de um jogador a outro, à espera do aceite. Os itens ficam sem FK (podem
+/// sumir ou mudar de dono); o servidor reconfere tudo ao aceitar.
+model Transfer {
+  id         String         @id @default(uuid())
+  campaignId String
+  /// Personagem que oferece.
+  fromId     String
+  /// Personagem que recebe.
+  toId       String
+  kind       TransferKind
+  status     TransferStatus @default(PENDING)
+  /// Item oferecido e o nome dele na hora da oferta (para o popup).
+  giveItemId String?
+  giveName   String?
+  giveQty    Int            @default(1)
+  /// Doação de ouro (sem item).
+  giveGold   Int            @default(0)
+  /// Só na troca: item pedido ao outro jogador.
+  askItemId  String?
+  askName    String?
+  askQty     Int            @default(1)
+  createdAt  DateTime       @default(now())
+  resolvedAt DateTime?
+
+  campaign Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  from     Character @relation("TransferFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to       Character @relation("TransferTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, status])
+  @@map("transfers")
 }
 
 model CampaignImage {
@@ -315,12 +340,8 @@ model LogEntry {
   masterMessage String?
   /// Valores antes/depois, usados pelo "desfazer" do mestre.
   delta         Json?
-  /// Resultado de dado associado (d20), quando houver.
+  /// Resultado de dado associado (rolagem avulsa), quando houver.
   roll          Int?
-  /// Condições que o mestre ainda precisa aplicar em alguém ("Aplicar em…").
-  pendingEffect Json?
-  /// Ação declarada pelo jogador que espera o mestre (d20, dano, confirmar o alvo).
-  pendingAction Json?
   revertedAt    DateTime?
   createdAt     DateTime  @default(now())
 

@@ -8,7 +8,7 @@ Controle de fichas para a mesa. O mestre cadastra os logins, abre o lobby da cam
 | `front/` | Vue 3 + Vuetify 4 + Pinia + Vue Router (Vite) |
 | `front/public/classes/` | Arte das 9 classes (as fichas originais) |
 | `front/public/icone.png` | Ícone do app; os ícones do PWA são gerados a partir dele |
-| `back/prisma/seed/classes.json` | As 9 classes transcritas das fichas: texto, mana, críticos e efeitos automáticos |
+| `back/prisma/seed/classes.json` | As 9 classes transcritas das fichas: texto, mana e faixas de crítico (só referência) |
 | `back/schema.sql` | CREATE TABLE do banco (aplicado à mão, sem migrations) |
 | `deploy.sh` | Deploy na VPS |
 
@@ -22,18 +22,35 @@ Controle de fichas para a mesa. O mestre cadastra os logins, abre o lobby da cam
 3. Cada jogador escolhe a classe, dá nome ao personagem e aperta **Estou pronto**. Trocar de classe cancela o pronto.
 4. Quando todos estão prontos, o mestre aperta **Começar aventura**.
 
-**Durante a aventura.** A mesa é física: os dados são físicos e a conversa é o jogo. O app só apoia.
-- **Jogador:** a ficha mostra vida, mana, habilidades, invocações, condições, inventário e anotações. Ao usar uma habilidade ele só **declara**: escolhe a habilidade e o alvo (um aliado, ele mesmo ou um inimigo em cena). A mana é cobrada na hora. Depois rola o d20 na mesa.
-- **Mestre:** o valor do d20 é digitado só por ele, numa fila "Aguardando você". O número vira o dano (nos ataques) e vale para o crítico (18/19/20). Ele resolve a ação ou nega (a mana volta). Também tem as ações rápidas (Dano, Cura, Mana, XP/Nível, Condição, Item, Criatura, Editar ficha), narra no log, rola dados, envia imagens e escolhe qual mostrar na tela dos jogadores.
-- **Três tipos de habilidade** (ver `COMBATE.md`):
-  - **Ataque** (`dealsDamage`): o d20 é o dano no inimigo. Os 7 ataques são as básicas de ataque, *Execução* e *Passo Predatório*.
-  - **Efeito** (`effect`): condição, invocação ou marca. Em aliado ou em si acontece na hora; em inimigo o mestre confirma.
-  - **Narrativa**: só vai para o log; o resto é a mesa. Quem tem faixa de crítico também passa pelo mestre.
-- **Inimigos:** o jogador vê o nome, as condições e uma **faixa de saúde** (Intacto, Ferido, Muito ferido, Por um fio, Caído). A vida, o d20 e o dano são só do mestre. O servidor nem manda esses números aos jogadores, e o log tem duas versões: a do mestre, com números, e a narrada.
+**Durante a aventura.** A mesa é física: os dados são físicos, a conversa é o jogo e **o mestre resolve tudo**. O app só registra e dá apoio.
+- **Jogador:** a ficha mostra vida, mana, habilidades, invocações, condições, inventário e anotações. O jogador diz na mesa o que vai fazer e, se for usar uma skill, toca nela e confirma: o app **só gasta a mana e registra no log**. Não há ataque básico nem escolha de alvo, e nada acontece sozinho.
+- **Mestre:** decide e aplica tudo pela interface dele. Dano, Cura, Mana, XP/Nível, Condição, Item, Criatura e Editar ficha (em personagens, criaturas e inimigos) são ações rápidas. Também narra no log, rola dados, envia imagens e escolhe qual mostrar na tela dos jogadores. Quando um jogador usa uma skill, a linha aparece no log da mesa ("Fulano usou X (−2 mana)") e o mestre pode desfazer.
+- **Skills:** cada classe tem 3. O app guarda nome, custo de mana, descrição e as faixas de crítico, que são só texto de referência (o mestre decide o que cada uma faz).
+- **Inimigos:** o jogador vê o nome, as condições e uma **faixa de saúde** (Intacto, Ferido, Muito ferido, Por um fio, Caído). A vida e o dano são só do mestre. O servidor nem manda esses números aos jogadores, e o log tem duas versões: a do mestre, com números, e a narrada.
+- **Condições:** são um status à mostra, sem prazo e sem efeito automático. O mestre coloca, decide o que acontece e tira. Passar o turno não mexe em vida nem em duração.
 - **Vida e nível:** todas as classes começam com 30 de vida e ganham +2 de vida máxima por nível. O efeito de subir de nível aparece na tela do jogador. Com 0 de vida o personagem fica **Caído**: não age e perde a vez no combate até ser curado.
-- **Mana:** não regenera sozinha; volta com poção (por enquanto o mestre devolve pelo botão Mana).
-- **Combate:** o mestre abre cada rodada ("o mundo reage") e a ordem dos personagens é uma trava: a vez só passa quando o jogador a passa (o mestre pode passar a de qualquer um). O celular vibra na vez do jogador e quando o mestre resolve a ação dele (não funciona no iPhone, onde o aviso é só visual).
-- **Ganchos de classe:** o sistema acende o *Frenesi* (Caçador com 40% de vida ou menos) e mostra a *instabilidade temporal* do Tecelão do Tempo, que sobe a cada uso e rompe em paradoxo no limite. A *Oportunidade* da Raposa Vermelha e a *Condenação* do Carrasco são narração do mestre: o app não calcula. O *Tudo ou Nada* do Apostador pergunta "O que você aposta?".
+- **Mana:** não regenera sozinha; volta com a Poção de Mana da loja (ou o mestre devolve pelo botão Mana).
+- **Ouro:** cada jogador tem o próprio ouro. Ao **encerrar um combate**, todo jogador recebe 3 moedas. O mestre também dá e tira ouro pelo botão **Ouro** do card do jogador (Dar/Tirar, com Desfazer), por exemplo para corrigir um combate encerrado por engano.
+- **Mercador:** o mestre abre e fecha a loja pelo card **Mercador**. Ao abrir, a tela dos jogadores mostra portas se abrindo e o estande, com os itens em prateleiras; o jogador compra com o próprio ouro (uma unidade por clique, a compra soma na pilha). A animação some no modo leve e com movimento reduzido. O mestre pode desfazer uma compra pelo log.
+
+  | Item | Preço | Ao usar |
+  |---|---|---|
+  | Poção de Vida | 5 | **+10 vida** (automático) |
+  | Poção de Mana | 5 | **+10 mana** (automático) |
+  | Ração de Viagem | 3 | **+5 vida** (automático) |
+  | Elixir do Viajante | 7 | **+5 vida e +5 mana** (automático) |
+  | Antídoto | 4 | só registra; o mestre tira a condição |
+  | Bomba de Fumaça | 6 | só registra; o mestre narra |
+  | Frasco de Fogo | 8 | só registra; o mestre decide o dano |
+  | Amuleto de Proteção | 10 | só registra; o mestre aplica |
+  | Tocha | 1 | só registra; o mestre narra |
+  | Corda | 2 | só registra; **o item fica** |
+  | Gazua | 4 | só registra; **o item fica** |
+
+  Os itens de **cura** são o único efeito automático do app; nos demais, usar só grava no log e tira 1 do inventário (Corda e Gazua não se gastam). Item de cura com a vida/mana já cheia pede confirmação antes de gastar. Usar item segue a regra das skills: em combate só na vez, e quem está caído não usa. O catálogo fica em `back/src/game/shop.ts` (e o espelho em `front/src/utils/shop.ts`).
+- **Doações e trocas:** um jogador pode **dar** um item ou ouro, ou **trocar** um item por um item do inventário de outro jogador (ouro só em doação). Ele escolhe o item, a quantidade e a pessoa; na tela de quem recebe aparece um **popup de aceitar ou recusar**, e só então os itens se movem. Fora de combate qualquer um oferece a qualquer momento; em combate só quem está na vez (quem recebe responde sempre). Cada jogador tem uma oferta aberta por vez e pode cancelá-la. Nada fica reservado: se o item mudou antes do aceite, a oferta cai. Só o resultado aceito vai ao log, e o mestre pode desfazer.
+- **Combate:** o mestre abre cada rodada ("o mundo reage") e a ordem dos personagens é uma trava: a vez só passa quando o jogador a passa (o mestre pode passar a de qualquer um). O celular vibra na vez do jogador (não funciona no iPhone, onde o aviso é só visual).
+- **Ganchos de classe:** o sistema só acende o *Frenesi* (Caçador com 40% de vida ou menos). O resto da mecânica de cada classe, como a *Oportunidade* da Raposa Vermelha, a *Condenação* do Carrasco e a *Instabilidade* do Tecelão, é narração do mestre: o app não calcula.
 - **Log:** tudo vai para o log da mesa. O mestre pode **desfazer** qualquer ação. O desfazer devolve só o que aquela ação mudou: desfazer um dano depois de uma cura não apaga a cura.
 
 ## Rodar em desenvolvimento (Windows ou Linux)
@@ -121,13 +138,14 @@ cd back  && npm run build && npm run lint && npm run test:e2e
 cd front && npm run build        # type-check + build
 ```
 
-Os testes e2e do back sobem um **Postgres real embutido** (não precisa de banco instalado). Eles cobrem login e papéis, o lobby, as habilidades (mana, críticos, efeitos, máscaras exclusivas, a criatura única do Necromante), os ajustes do mestre, o desfazer, as permissões, as imagens e o websocket.
+Os testes e2e do back sobem um **Postgres real embutido** (não precisa de banco instalado). Eles cobrem login e papéis, o lobby, o uso de habilidades (só mana e log), os ajustes do mestre, o desfazer, o combate por turnos, as condições manuais, o ouro, a loja e os itens, as doações e trocas, as permissões, as imagens e o websocket.
 
 ## Mudar as classes
 
 Edite `back/prisma/seed/classes.json` e rode `npm run db:seed`.
 
 - **Vida e mana iniciais** (`baseHp`/`baseMana`): vida 30 em todas as classes (mais 2 por nível, em `back/src/game/rules.ts`); a mana (10) é provisória, porque as fichas não trazem esse número.
-- **Tipo da habilidade:** `dealsDamage: true` marca um **Ataque** (o d20 do mestre vira o dano). `prompt` faz o jogador responder uma pergunta antes de usar (vai no log).
-- **Efeitos automáticos:** cada habilidade aceita `effect` (`SUMMON`, `SACRIFICE_SUMMON`, `SELF_CONDITION`, `TARGET_CONDITION`) com `effectData` (nome, descrição, `exclusiveGroup`, vida da criatura).
-- **Críticos:** cada habilidade aceita `crits` (`[{ "min": 18, "max": 20, "text": "..." }]`).
+- **Habilidades:** cada classe tem 3 skills (`kind: "SKILL"`) com `name`, `manaCost` e `description`. Não há ataque básico, dano, efeito nem pergunta: o mestre resolve tudo.
+- **Críticos:** `crits` (`[{ "min": 18, "max": 20, "text": "..." }]`) é opcional e só aparece como texto de referência.
+- **Condições** (`back/prisma/seed/conditions.json`): só `id`, `name`, `description` e `polarity`.
+- **Banco:** o seed apaga as habilidades que saíram do JSON. Tirar campos do `schema.prisma` não exige `ALTER`: o Prisma ignora colunas que sobram no banco.

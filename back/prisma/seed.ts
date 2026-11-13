@@ -10,7 +10,6 @@ import 'dotenv/config';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  AbilityEffect,
   AbilityKind,
   ConditionPolarity,
   Prisma,
@@ -22,12 +21,9 @@ interface SeedAbility {
   kind: AbilityKind;
   name: string;
   manaCost: number;
-  dealsDamage?: boolean;
-  prompt?: string;
   description: string;
+  /** Só texto de referência; o mestre decide o que a faixa faz. */
   crits?: { min: number; max: number; text: string }[];
-  effect?: AbilityEffect;
-  effectData?: Record<string, unknown>;
 }
 
 interface SeedClass {
@@ -40,7 +36,6 @@ interface SeedClass {
   mechanicText: string;
   baseHp: number;
   baseMana: number;
-  maxSummons: number;
   color: string;
   artFile: string;
   abilities: SeedAbility[];
@@ -51,10 +46,6 @@ interface SeedCondition {
   name: string;
   description: string;
   polarity: ConditionPolarity;
-  turns?: number;
-  hpPerTurn?: number;
-  skipsTurn?: boolean;
-  exclusiveGroup?: string;
 }
 
 const prisma = new PrismaClient({ datasourceUrl: databaseUrl() });
@@ -71,10 +62,6 @@ async function seedConditions() {
         name: d.name,
         description: d.description,
         polarity: d.polarity,
-        turns: d.turns ?? null,
-        hpPerTurn: d.hpPerTurn ?? 0,
-        skipsTurn: d.skipsTurn ?? false,
-        exclusiveGroup: d.exclusiveGroup ?? null,
         sortOrder: i,
       };
       await tx.conditionDef.upsert({
@@ -111,12 +98,8 @@ async function main() {
         const abilityData = {
           kind: a.kind,
           manaCost: a.manaCost,
-          dealsDamage: a.dealsDamage ?? false,
-          prompt: a.prompt ?? null,
           description: a.description,
           crits: json(a.crits),
-          effect: a.effect ?? null,
-          effectData: json(a.effectData),
           sortOrder: i,
         };
         await tx.ability.upsert({

@@ -3,7 +3,5 @@
 /** Vida máxima (e atual) que o personagem ganha a cada nível subido. */
 export const HP_PER_LEVEL = 2;
 
-/** Instabilidade temporal: só o Tecelão do Tempo a acumula. */
-export const INSTABILITY_CLASS = 'tecelao-do-tempo';
-/** Ao chegar neste valor o tempo rompe em paradoxo e a instabilidade volta a 0. */
-export const INSTABILITY_LIMIT = 5;
+/** Moedas de ouro que cada jogador recebe quando um combate termina. */
+export const COMBAT_REWARD_GOLD = 3;

@@ -47,22 +47,3 @@ export function conditionArt(id: string, polarity: ConditionPolarity) {
   const art = ART[id]
   return { icon: art?.icon ?? base.icon, color: art?.color ?? base.color }
 }
-
-/** 3 → "III"; até 39, o bastante para turnos. */
-export function roman(n: number) {
-  const parts: [number, string][] = [
-    [10, 'X'],
-    [9, 'IX'],
-    [5, 'V'],
-    [4, 'IV'],
-    [1, 'I'],
-  ]
-  let out = ''
-  for (const [v, s] of parts) {
-    while (n >= v) {
-      out += s
-      n -= v
-    }
-  }
-  return out
-}

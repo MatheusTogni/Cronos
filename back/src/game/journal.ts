@@ -37,57 +37,13 @@ export interface StatDiff {
   mana?: number;
   xp?: number;
   level?: number;
-  instability?: number;
+  gold?: number;
 }
 
 type ConditionSnap = Omit<Condition, 'createdAt'> & { createdAt: string };
 type SummonSnap = Omit<Summon, 'createdAt'> & { createdAt: string };
 type ItemSnap = Omit<InventoryItem, 'createdAt'> & { createdAt: string };
 type NpcSnap = Omit<Npc, 'createdAt'> & { createdAt: string };
-
-/** Condição a aplicar quando o mestre escolher o alvo. */
-export interface PendingCondition {
-  defId?: string;
-  name?: string;
-  description?: string;
-  exclusiveGroup?: string;
-  turns?: number | null;
-}
-
-/** Efeito de habilidade aguardando o mestre ("Aplicar em…"). */
-export interface PendingEffect {
-  /** Quem usou a habilidade. */
-  source: string;
-  conditions: PendingCondition[];
-}
-
-/** Em quem a habilidade foi declarada. */
-export interface ActionTarget {
-  kind: 'self' | 'character' | 'npc';
-  id: string;
-  name: string;
-}
-
-/**
- * Habilidade declarada pelo jogador que espera o mestre: ele digita o d20
- * (que vira o dano e/ou o crítico) ou confirma o alvo inimigo. A mana já foi
- * cobrada na declaração e volta se o mestre negar.
- */
-export interface PendingAction {
-  characterId: string;
-  characterName: string;
-  abilityId: string;
-  abilityName: string;
-  manaCost: number;
-  target: ActionTarget | null;
-  /** O d20 do mestre é obrigatório: a habilidade causa dano ou tem faixa de crítico. */
-  needsRoll: boolean;
-  dealsDamage: boolean;
-  /** Resposta do jogador à pergunta da habilidade (ex.: o que apostou). */
-  note?: string;
-  /** Invocação escolhida para sacrificar. */
-  summonId?: string;
-}
 
 export interface TurnPos {
   round: number;
@@ -98,20 +54,9 @@ export interface Delta {
   stats?: ({ characterId: string } & StatDiff)[];
   /** Passagem de turno: de onde para onde foi. */
   turn?: { campaignId: string; from: TurnPos; to: TurnPos };
-  /** Turnos descontados das condições (desfazer devolve). */
-  conditionTurns?: { conditionId: string; turns: number }[];
   summonHp?: { summonId: string; hp: number }[];
   npcHp?: { npcId: string; hp: number }[];
   itemQty?: { itemId: string; qty: number }[];
-  /** Efeito pendente que esta ação consumiu (desfazer devolve). */
-  clearedPending?: { logId: string; effect: PendingEffect };
-  /** Ação declarada que esta resolução consumiu: desfazer a devolve como pendente. */
-  clearedAction?: {
-    logId: string;
-    action: PendingAction;
-    /** O delta da declaração (a mana cobrada), para poder negar depois. */
-    delta: Prisma.JsonValue;
-  };
   created?: {
     summons?: string[];
     conditions?: string[];
@@ -154,24 +99,8 @@ export class DeltaBuilder {
     if (hp) (this.delta.npcHp ??= []).push({ npcId, hp });
   }
 
-  clearedPending(logId: string, effect: PendingEffect) {
-    this.delta.clearedPending = { logId, effect };
-  }
-
-  clearedAction(
-    logId: string,
-    action: PendingAction,
-    declaration: Prisma.JsonValue,
-  ) {
-    this.delta.clearedAction = { logId, action, delta: declaration };
-  }
-
   turn(campaignId: string, from: TurnPos, to: TurnPos) {
     this.delta.turn = { campaignId, from, to };
-  }
-
-  conditionTurns(conditionId: string, turns: number) {
-    if (turns) (this.delta.conditionTurns ??= []).push({ conditionId, turns });
   }
 
   itemQty(itemId: string, qty: number) {
@@ -231,7 +160,7 @@ export async function applyStats(
     mana: clamp(character.mana + (diff.mana ?? 0), 0, character.manaMax),
     xp: Math.max(0, character.xp + (diff.xp ?? 0)),
     level,
-    instability: Math.max(0, character.instability + (diff.instability ?? 0)),
+    gold: Math.max(0, character.gold + (diff.gold ?? 0)),
   };
   const applied = {
     hp: next.hp - character.hp,
@@ -239,7 +168,7 @@ export async function applyStats(
     mana: next.mana - character.mana,
     xp: next.xp - character.xp,
     level: next.level - character.level,
-    instability: next.instability - character.instability,
+    gold: next.gold - character.gold,
   };
   delta.stat(character.id, applied);
   const updated = await db.character.update({
@@ -263,7 +192,7 @@ export async function revertDelta(db: Db, delta: Delta) {
         mana: clamp(c.mana - (s.mana ?? 0), 0, c.manaMax),
         xp: Math.max(0, c.xp - (s.xp ?? 0)),
         level: Math.max(1, c.level - (s.level ?? 0)),
-        instability: Math.max(0, c.instability - (s.instability ?? 0)),
+        gold: Math.max(0, c.gold - (s.gold ?? 0)),
       },
     });
   }
@@ -290,39 +219,6 @@ export async function revertDelta(db: Db, delta: Delta) {
     await db.npc.update({
       where: { id: npc.id },
       data: { hp: clamp(npc.hp - n.hp, 0, npc.hpMax) },
-    });
-  }
-
-  if (delta.clearedPending) {
-    await db.logEntry.updateMany({
-      where: { id: delta.clearedPending.logId },
-      data: {
-        pendingEffect: delta.clearedPending
-          .effect as unknown as Prisma.InputJsonValue,
-      },
-    });
-  }
-
-  if (delta.clearedAction) {
-    const { logId, action, delta: declaration } = delta.clearedAction;
-    await db.logEntry.updateMany({
-      where: { id: logId },
-      data: {
-        pendingAction: action as unknown as Prisma.InputJsonValue,
-        delta:
-          declaration === null
-            ? Prisma.DbNull
-            : (declaration as Prisma.InputJsonValue),
-      },
-    });
-  }
-
-  for (const t of delta.conditionTurns ?? []) {
-    const c = await db.condition.findUnique({ where: { id: t.conditionId } });
-    if (!c || c.turnsLeft === null) continue;
-    await db.condition.update({
-      where: { id: c.id },
-      data: { turnsLeft: c.turnsLeft - t.turns },
     });
   }
 
@@ -460,8 +356,6 @@ export async function writeLog(
     masterMessage?: string | null;
     roll?: number | null;
     delta?: DeltaBuilder | null;
-    pendingEffect?: PendingEffect | null;
-    pendingAction?: PendingAction | null;
   },
 ) {
   const entry = await db.logEntry.create({
@@ -476,12 +370,6 @@ export async function writeLog(
           ? data.masterMessage
           : null,
       roll: data.roll ?? null,
-      pendingEffect: data.pendingEffect?.conditions.length
-        ? (data.pendingEffect as unknown as Prisma.InputJsonValue)
-        : Prisma.DbNull,
-      pendingAction: data.pendingAction
-        ? (data.pendingAction as unknown as Prisma.InputJsonValue)
-        : Prisma.DbNull,
       delta:
         data.delta && !data.delta.isEmpty
           ? (data.delta.delta as Prisma.InputJsonValue)

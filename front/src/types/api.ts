@@ -19,19 +19,14 @@ export interface LoginResponse {
   user: AuthUser
 }
 
+/** Faixa de crítico: só texto de referência, quem decide o que acontece é o mestre. */
 export interface Crit {
   min: number
   max: number
   text: string
-  /** Condição do catálogo aplicada nessa faixa. */
-  condition?: string
-  turns?: number
-  /** Em quem cai: no alvo (padrão) ou em quem usou. */
-  on?: 'target' | 'self'
 }
 
 export type AbilityKind = 'BASIC' | 'SKILL'
-export type AbilityEffect = 'SUMMON' | 'SACRIFICE_SUMMON' | 'SELF_CONDITION' | 'TARGET_CONDITION'
 
 export interface Ability {
   id: string
@@ -39,14 +34,8 @@ export interface Ability {
   kind: AbilityKind
   name: string
   manaCost: number
-  /** Ataque: o valor do d20 vira o dano no alvo. */
-  dealsDamage: boolean
-  /** Pergunta feita antes de usar (ex.: "O que você aposta?"). */
-  prompt: string | null
   description: string
   crits: Crit[] | null
-  effect: AbilityEffect | null
-  effectData: Record<string, unknown> | null
   sortOrder: number
 }
 
@@ -60,7 +49,6 @@ export interface CharacterClass {
   mechanicText: string
   baseHp: number
   baseMana: number
-  maxSummons: number
   color: string
   artFile: string
   sortOrder: number
@@ -130,13 +118,10 @@ export interface ConditionDef {
   name: string
   description: string
   polarity: ConditionPolarity
-  turns: number | null
-  hpPerTurn: number
-  skipsTurn: boolean
-  exclusiveGroup: string | null
   sortOrder: number
 }
 
+/** Status à mostra: sem prazo nem efeito automático. O mestre coloca e tira. */
 export interface Condition {
   id: string
   characterId: string | null
@@ -146,14 +131,7 @@ export interface Condition {
   name: string
   description: string | null
   source: string | null
-  exclusiveGroup: string | null
-  /** Legado: texto livre de antes dos turnos. */
-  duration: string | null
   polarity: ConditionPolarity
-  /** Turnos restantes de quem carrega; null = sem prazo. */
-  turnsLeft: number | null
-  hpPerTurn: number
-  skipsTurn: boolean
 }
 
 export interface Summon {
@@ -197,6 +175,8 @@ export interface InventoryItem {
   name: string
   qty: number
   description: string | null
+  /** Item do catálogo da loja (ver utils/shop.ts); null = dado à mão pelo mestre. */
+  code: string | null
 }
 
 export interface Character {
@@ -211,8 +191,8 @@ export interface Character {
   hpMax: number
   mana: number
   manaMax: number
-  /** Instabilidade temporal (só o Tecelão do Tempo acumula). */
-  instability: number
+  /** Moedas de ouro. */
+  gold: number
   notes: string
   summons: Summon[]
   conditions: Condition[]
@@ -247,7 +227,28 @@ export interface CampaignState {
   characters: Character[]
   npcs: Npc[]
   shownImage: { id: string; title: string; url: string } | null
+  /** Loja do mercador aberta para os jogadores. */
+  shopOpen: boolean
   combat: CombatState | null
+}
+
+export type TransferKind = 'GIFT' | 'TRADE'
+export type TransferStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'CANCELLED'
+
+/** Oferta de doação (item ou ouro) ou troca (item por item) entre jogadores. */
+export interface Transfer {
+  id: string
+  campaignId: string
+  kind: TransferKind
+  status: TransferStatus
+  from: { id: string; name: string }
+  to: { id: string; name: string }
+  /** Item oferecido (null numa doação de ouro). */
+  give: { name: string; qty: number } | null
+  /** Ouro oferecido (0 quando é item). */
+  gold: number
+  /** Só na troca: o que o remetente pede ao outro jogador. */
+  ask: { name: string; qty: number } | null
 }
 
 export type LogType =
@@ -273,33 +274,6 @@ export type LogType =
   | 'NPC_UPDATED'
   | 'NPC_REMOVED'
 
-/** Efeito de habilidade aguardando o mestre escolher o alvo. */
-export interface PendingEffect {
-  source: string
-  conditions: { defId?: string; name?: string; turns?: number | null }[]
-}
-
-/** Em quem a habilidade foi declarada. */
-export interface ActionTarget {
-  kind: 'self' | 'character' | 'npc'
-  id: string
-  name: string
-}
-
-/** Habilidade declarada que espera o mestre (d20, dano, confirmar o alvo). */
-export interface PendingAction {
-  characterId: string
-  characterName: string
-  abilityId: string
-  abilityName: string
-  manaCost: number
-  target: ActionTarget | null
-  /** O mestre digita o d20: a habilidade causa dano ou tem faixa de crítico. */
-  needsRoll: boolean
-  dealsDamage: boolean
-  note?: string
-}
-
 /** Quem pode receber condição. */
 export type TargetKind = 'character' | 'summon' | 'npc'
 export interface ConditionTarget {
@@ -317,8 +291,6 @@ export interface LogEntry {
   createdAt: string
   revertedAt: string | null
   revertible: boolean
-  pendingEffect: PendingEffect | null
-  pendingAction: PendingAction | null
   actor: { id: string; displayName: string } | null
 }
 

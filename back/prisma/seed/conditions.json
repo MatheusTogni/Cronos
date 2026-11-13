@@ -3,204 +3,169 @@
     "id": "sangrando",
     "name": "Sangrando",
     "description": "Perde vida no fim de cada turno.",
-    "polarity": "DEBUFF",
-    "turns": 3,
-    "hpPerTurn": -1
+    "polarity": "DEBUFF"
   },
   {
     "id": "envenenado",
     "name": "Envenenado",
     "description": "O veneno corrói por dentro: perde vida no fim de cada turno.",
-    "polarity": "DEBUFF",
-    "turns": 3,
-    "hpPerTurn": -1
+    "polarity": "DEBUFF"
   },
   {
     "id": "queimando",
     "name": "Queimando",
     "description": "Em chamas: perde vida no fim de cada turno.",
-    "polarity": "DEBUFF",
-    "turns": 2,
-    "hpPerTurn": -2
+    "polarity": "DEBUFF"
   },
   {
     "id": "hesitante",
     "name": "Hesitante",
     "description": "Duvida antes de agir. Fica vulnerável ao Carrasco e à Raposa Vermelha.",
-    "polarity": "DEBUFF",
-    "turns": 1
+    "polarity": "DEBUFF"
   },
   {
     "id": "amedrontado",
     "name": "Amedrontado",
     "description": "Evita o confronto direto e perde coragem.",
-    "polarity": "DEBUFF",
-    "turns": 2
+    "polarity": "DEBUFF"
   },
   {
     "id": "em-panico",
     "name": "Em pânico",
     "description": "Descontrole total: age de forma errática.",
-    "polarity": "DEBUFF",
-    "turns": 1
+    "polarity": "DEBUFF"
   },
   {
     "id": "distraido",
     "name": "Distraído",
     "description": "Perde o foco. Abre espaço para furtos e ataques oportunistas.",
-    "polarity": "DEBUFF",
-    "turns": 1
+    "polarity": "DEBUFF"
   },
   {
     "id": "desequilibrado",
     "name": "Desequilibrado",
     "description": "Fora de posição: ataques e reações ficam piores.",
-    "polarity": "DEBUFF",
-    "turns": 1
+    "polarity": "DEBUFF"
   },
   {
     "id": "derrubado",
     "name": "Derrubado",
     "description": "Caído no chão. Precisa gastar o movimento para levantar.",
-    "polarity": "DEBUFF",
-    "turns": 1
+    "polarity": "DEBUFF"
   },
   {
     "id": "preso",
     "name": "Preso",
     "description": "Imobilizado: não consegue se deslocar.",
-    "polarity": "DEBUFF",
-    "turns": 1
+    "polarity": "DEBUFF"
   },
   {
     "id": "lento",
     "name": "Lento",
     "description": "O tempo pesa: move-se e reage mais devagar.",
-    "polarity": "DEBUFF",
-    "turns": 2
+    "polarity": "DEBUFF"
   },
   {
     "id": "incapacitado",
     "name": "Incapacitado",
     "description": "Não consegue agir: perde a vez.",
-    "polarity": "DEBUFF",
-    "turns": 1,
-    "skipsTurn": true
+    "polarity": "DEBUFF"
   },
   {
     "id": "congelado-no-tempo",
     "name": "Congelado no tempo",
     "description": "O tempo para ao redor do alvo: perde a vez.",
-    "polarity": "DEBUFF",
-    "turns": 1,
-    "skipsTurn": true
+    "polarity": "DEBUFF"
   },
   {
     "id": "cego",
     "name": "Cego",
     "description": "Sem visão: percepção falha e ataques erram.",
-    "polarity": "DEBUFF",
-    "turns": 2
+    "polarity": "DEBUFF"
   },
   {
     "id": "surdo",
     "name": "Surdo",
     "description": "Audição removida temporariamente.",
-    "polarity": "NEUTRAL",
-    "turns": 2
+    "polarity": "NEUTRAL"
   },
   {
     "id": "sem-equilibrio",
     "name": "Sem equilíbrio",
     "description": "Tontura constante: difícil ficar de pé e mirar.",
-    "polarity": "DEBUFF",
-    "turns": 2
+    "polarity": "DEBUFF"
   },
   {
     "id": "confuso",
     "name": "Confuso",
     "description": "Confunde aliados e inimigos.",
-    "polarity": "DEBUFF",
-    "turns": 2
+    "polarity": "DEBUFF"
   },
   {
     "id": "azarado",
     "name": "Azarado",
     "description": "Sorte roubada: tropeça, erra e falha em momentos críticos.",
-    "polarity": "DEBUFF",
-    "turns": 3
+    "polarity": "DEBUFF"
   },
   {
     "id": "acelerado",
     "name": "Acelerado",
     "description": "Move-se além do normal.",
-    "polarity": "BUFF",
-    "turns": 1
+    "polarity": "BUFF"
   },
   {
     "id": "frenesi",
     "name": "Frenesi",
     "description": "Mais agressivo, ignora hesitação.",
-    "polarity": "BUFF",
-    "turns": 2
+    "polarity": "BUFF"
   },
   {
     "id": "ignora-dor",
     "name": "Ignora a dor",
     "description": "Ferimentos não o atrapalham.",
-    "polarity": "BUFF",
-    "turns": 2
+    "polarity": "BUFF"
   },
   {
     "id": "regenerando",
     "name": "Regenerando",
     "description": "Recupera vida no fim de cada turno.",
-    "polarity": "BUFF",
-    "turns": 3,
-    "hpPerTurn": 1
+    "polarity": "BUFF"
   },
   {
     "id": "lua-rubra",
     "name": "Lua Rubra",
     "description": "Forma bestial: mais rápido, mais agressivo, ignora dor. Toma dano a cada turno enquanto transformado.",
-    "polarity": "BUFF",
-    "hpPerTurn": -1,
-    "exclusiveGroup": "lua-rubra"
+    "polarity": "BUFF"
   },
   {
     "id": "cacada-escarlate",
     "name": "Caçada Escarlate",
     "description": "Em perseguição total: mais rápida e precisa, porém mais imprudente e com a posição exposta.",
-    "polarity": "BUFF",
-    "exclusiveGroup": "cacada-escarlate"
+    "polarity": "BUFF"
   },
   {
     "id": "mascara-da-serenidade",
     "name": "Máscara da Serenidade",
     "description": "Calma sobrenatural. Aliados: menos medo, mais foco. Inimigos: menos agressividade.",
-    "polarity": "NEUTRAL",
-    "exclusiveGroup": "mascara"
+    "polarity": "NEUTRAL"
   },
   {
     "id": "mascara-do-carrasco",
     "name": "Máscara do Carrasco",
     "description": "Brutalidade. Aliados: mais agressivos. Inimigos: imprudência e perda de controle.",
-    "polarity": "NEUTRAL",
-    "exclusiveGroup": "mascara"
+    "polarity": "NEUTRAL"
   },
   {
     "id": "mascara-vazia",
     "name": "Máscara Vazia",
     "description": "Presença apagada. Aliados: difíceis de perceber. Inimigos: confusão e perda de identidade.",
-    "polarity": "NEUTRAL",
-    "exclusiveGroup": "mascara"
+    "polarity": "NEUTRAL"
   },
   {
     "id": "marcado-pelo-pressagio",
     "name": "Marcado pelo Presságio",
     "description": "Mais vulnerável, sentidos distorcidos, sofre efeitos ampliados.",
-    "polarity": "DEBUFF",
-    "exclusiveGroup": "pressagio"
+    "polarity": "DEBUFF"
   },
   {
     "id": "divida",

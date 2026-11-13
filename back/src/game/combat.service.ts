@@ -14,9 +14,10 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { LogDto } from '../realtime/state';
-import { endTurnOf, endTurnOfNpcs, joinPt } from './conditions';
+import { joinPt } from './conditions';
 import { NextTurnDto, TurnOrderDto } from './dto';
 import { DeltaBuilder, Line, same, TurnPos, writeLog } from './journal';
+import { COMBAT_REWARD_GOLD } from './rules';
 
 type Tx = Prisma.TransactionClient;
 
@@ -72,11 +73,17 @@ export class CombatService {
         where: { id: campaignId },
         data: { inCombat: false, round: 0, turnIndex: 0, turnOrder: [] },
       });
+      // todo jogador ganha ouro ao fim do combate (sem delta: o fim do combate
+      // não se desfaz; se for engano, o mestre ajusta o ouro à mão)
+      await tx.character.updateMany({
+        where: { campaignId },
+        data: { gold: { increment: COMBAT_REWARD_GOLD } },
+      });
       return writeLog(tx, {
         campaignId,
         actorUserId: user.id,
         type: LogType.TURN,
-        message: `O combate termina (${campaign.round} ${campaign.round === 1 ? 'rodada' : 'rodadas'}).`,
+        message: `O combate termina (${campaign.round} ${campaign.round === 1 ? 'rodada' : 'rodadas'}). Cada jogador recebe ${COMBAT_REWARD_GOLD} moedas de ouro.`,
       });
     });
   }
@@ -126,8 +133,8 @@ export class CombatService {
 
   /**
    * Passa o turno: o mestre passa qualquer um; o jogador só o do próprio
-   * personagem. Fecha o turno de quem estava (vida por turno, desconta a
-   * duração das condições) e pula quem está com uma condição que tira a vez.
+   * personagem. Pula quem está caído. As condições não mudam: quem as
+   * gerencia é o mestre.
    */
   async next(campaignId: string, dto: NextTurnDto, user: AuthUser) {
     const campaign = await loadCampaign(this.prisma, campaignId);
@@ -160,21 +167,13 @@ export class CombatService {
       const parts: Line[] = [];
       const order = campaign.turnOrder;
       const load = (id: string) =>
-        tx.character.findFirst({
-          where: { id, campaignId },
-          include: { conditions: true },
-        });
+        tx.character.findFirst({ where: { id, campaignId } });
 
       if (currentId) {
         const ch = await load(currentId);
-        if (ch) {
-          parts.push(same(`${ch.name} passa a vez`));
-          parts.push(...(await endTurnOf(tx, ch, delta)));
-        }
+        if (ch) parts.push(same(`${ch.name} passa a vez`));
       } else {
         parts.push(same('O mundo termina de reagir'));
-        // inimigos agem no turno do mestre: as condições deles descontam aqui
-        parts.push(...(await endTurnOfNpcs(tx, campaignId, delta)));
       }
 
       const from: TurnPos = {
@@ -183,7 +182,7 @@ export class CombatService {
       };
       let { round, turnIndex } = from;
       let nextName: string | null = null; // null = o mundo reage
-      // termina: no pior caso todos perdem a vez e a rodada volta ao mestre
+      // termina: no pior caso todos estão caídos e a rodada volta ao mestre
       for (;;) {
         turnIndex++;
         if (turnIndex > order.length) {
@@ -193,16 +192,8 @@ export class CombatService {
         }
         const ch = await load(order[turnIndex - 1]);
         if (!ch) continue; // saiu da campanha
-        const blocker = ch.conditions.find((c) => c.skipsTurn);
-        if (blocker || ch.hp === 0) {
-          parts.push(
-            same(
-              blocker
-                ? `${ch.name} perde a vez (${blocker.name})`
-                : `${ch.name} está caído e perde a vez`,
-            ),
-          );
-          parts.push(...(await endTurnOf(tx, ch, delta)));
+        if (ch.hp === 0) {
+          parts.push(same(`${ch.name} está caído e perde a vez`));
           continue;
         }
         nextName = ch.name;
