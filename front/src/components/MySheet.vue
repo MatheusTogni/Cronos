@@ -22,11 +22,14 @@ const confirm = useConfirmStore()
 const notify = useNotifyStore()
 
 const skills = computed(() => props.cls.abilities.filter((a) => a.kind === 'SKILL'))
+/** A habilidade só abre quando o personagem chega ao nível dela. */
+const isLocked = (a: Ability) => a.unlockLevel > props.character.level
 
 // ── usar habilidade ──
 const abilityOpen = ref(false)
 const selectedAbility = ref<Ability | null>(null)
 function use(a: Ability) {
+  if (isLocked(a)) return
   selectedAbility.value = a
   abilityOpen.value = true
 }
@@ -192,20 +195,23 @@ async function saveNotes() {
           :key="a.id"
           type="button"
           class="ability"
-          :class="{ disabled: a.manaCost > character.mana || !campaign.canAct }"
+          :class="{ locked: isLocked(a), disabled: !isLocked(a) && (a.manaCost > character.mana || !campaign.canAct) }"
+          :disabled="isLocked(a)"
           @click="use(a)"
         >
           <div class="ab-cost">
-            <template v-if="a.manaCost">
+            <v-icon v-if="isLocked(a)" icon="mdi-lock-outline" />
+            <template v-else-if="a.manaCost">
               <span class="ab-num">{{ a.manaCost }}</span><span class="ab-lbl">mana</span>
             </template>
             <v-icon v-else icon="mdi-auto-fix" />
           </div>
           <div class="ab-body">
             <div class="ab-name">{{ a.name }}</div>
-            <div class="ab-desc">{{ a.description.split('\n')[0] }}</div>
+            <div v-if="isLocked(a)" class="ab-desc">Libera no nível {{ a.unlockLevel }}</div>
+            <div v-else class="ab-desc">{{ a.description.split('\n')[0] }}</div>
           </div>
-          <v-icon icon="mdi-chevron-right" class="ab-go" />
+          <v-icon v-if="!isLocked(a)" icon="mdi-chevron-right" class="ab-go" />
         </button>
       </div>
       <details class="mechanic">
@@ -410,6 +416,14 @@ h3 {
 
 .ability.disabled {
   opacity: 0.45;
+}
+
+/* ainda não liberada: só mostra em que nível abre */
+.ability.locked {
+  opacity: 0.5;
+  cursor: not-allowed;
+  border-style: dashed;
+  border-color: var(--border-soft);
 }
 
 .ab-cost {

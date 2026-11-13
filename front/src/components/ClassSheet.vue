@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { CharacterClass, Crit } from '@/types/api'
+import { HP_PER_LEVEL, MANA_PER_LEVEL } from '@/utils/classHooks'
 
 /** Ficha completa de uma classe (texto estruturado, legível no celular). */
 const props = defineProps<{ cls: CharacterClass }>()
@@ -49,7 +50,12 @@ const critLabel = (c: Crit) =>
           <span class="mana-lbl">mana</span>
         </div>
         <div class="skill-body">
-          <div class="ability-name">{{ skill.name }}</div>
+          <div class="ability-name">
+            {{ skill.name }}
+            <span v-if="skill.unlockLevel > 1" class="unlock" :title="`Liberada no nível ${skill.unlockLevel}`">
+              <v-icon icon="mdi-lock-open-variant-outline" size="x-small" /> nível {{ skill.unlockLevel }}
+            </span>
+          </div>
           <p class="pre-line">{{ skill.description }}</p>
           <ul v-if="skill.crits?.length" class="crits">
             <li v-for="c in skill.crits" :key="c.min">
@@ -63,6 +69,9 @@ const critLabel = (c: Crit) =>
     <footer class="base-stats">
       <span><v-icon icon="mdi-heart" size="small" /> Vida inicial {{ cls.baseHp }}</span>
       <span><v-icon icon="mdi-water" size="small" /> Mana inicial {{ cls.baseMana }}</span>
+      <span>
+        <v-icon icon="mdi-arrow-up-bold" size="small" /> A cada nível: +{{ HP_PER_LEVEL }} vida, +{{ MANA_PER_LEVEL }} mana
+      </span>
     </footer>
   </div>
 </template>
@@ -135,6 +144,16 @@ p {
   font-weight: 700;
   color: var(--accent);
   margin-bottom: 2px;
+}
+
+.unlock {
+  margin-left: 6px;
+  font-family: var(--font-body, inherit);
+  font-size: 0.72rem;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+  white-space: nowrap;
 }
 
 .mana {

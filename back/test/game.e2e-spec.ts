@@ -196,6 +196,7 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       // personagem nasce com vida/mana da classe
       const morgana = started.characters.find((c) => c.name === 'Morgana')!;
       expect(morgana).toMatchObject({
+        level: 1,
         hp: 30,
         hpMax: 30,
         mana: 10,
@@ -309,6 +310,14 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
         .expect(201);
       const goblin = (await state(master, id)).npcs[0];
 
+      // a 2ª e a 3ª skill só abrem com o nível; aqui os dois já passaram do 5
+      for (const c of [morgana, veu]) {
+        await t.prisma.character.update({
+          where: { id: c.id },
+          data: { level: 5 },
+        });
+      }
+
       // as que antes causavam dano, aplicavam condição ou criavam criatura
       const voz = await ability(t, 'necromante', 'Voz dos Mortos');
       const reanimar = await ability(t, 'necromante', 'Reanimar');
@@ -336,12 +345,14 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       );
       const classes = (await kaua.get('/classes').expect(200)).body as {
         id: string;
-        abilities: { name: string; kind: string }[];
+        abilities: { name: string; kind: string; unlockLevel: number }[];
       }[];
       expect(classes).toHaveLength(9);
       for (const c of classes) {
         expect(c.abilities).toHaveLength(3);
         expect(c.abilities.every((a) => a.kind === 'SKILL')).toBe(true);
+        // 1ª skill desde o início, 2ª no nível 5, 3ª no nível 10
+        expect(c.abilities.map((a) => a.unlockLevel)).toEqual([1, 5, 10]);
       }
     });
 
@@ -351,7 +362,7 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
       const reanimar = await ability(t, 'necromante', 'Reanimar');
       await t.prisma.character.update({
         where: { id: morgana.id },
-        data: { mana: 4 },
+        data: { mana: 4, level: 10 }, // a 3ª skill abre no nível 10
       });
       const res = await use(kaua, morgana.id, sacrificio).expect(400);
       expect((res.body as { message: string }).message).toContain(
@@ -408,6 +419,49 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
         .post(`/characters/${morgana.id}/adjust`, { hp: 5 })
         .expect(200);
       await use(kaua, morgana.id, reanimar).expect(200);
+    });
+
+    it('só a 1ª skill vem liberada: a 2ª abre no nível 5 e a 3ª no nível 10', async () => {
+      const { id, morgana } = await activeCampaign();
+      const reanimar = await ability(t, 'necromante', 'Reanimar');
+      const voz = await ability(t, 'necromante', 'Voz dos Mortos');
+      const sacrificio = await ability(t, 'necromante', 'Sacrifício Macabro');
+      const levelUp = async (by: number) =>
+        logOf(
+          await master
+            .post(`/characters/${morgana.id}/adjust`, { level: by })
+            .expect(200),
+        );
+
+      await use(kaua, morgana.id, reanimar).expect(200);
+      const locked2 = await use(kaua, morgana.id, voz).expect(400);
+      expect((locked2.body as { message: string }).message).toBe(
+        'Voz dos Mortos só é liberada no nível 5 e Morgana está no nível 1',
+      );
+      const locked3 = await use(kaua, morgana.id, sacrificio).expect(400);
+      expect((locked3.body as { message: string }).message).toContain(
+        'só é liberada no nível 10',
+      );
+      // a recusa não cobra mana
+      expect((await charOf(id, morgana.id)).mana).toBe(9);
+
+      // no nível 4 ainda está trancada; o 5 abre a 2ª e o log avisa
+      await levelUp(3);
+      await use(kaua, morgana.id, voz).expect(400);
+      const to5 = await levelUp(1);
+      expect(to5.message).toBe(
+        'Morgana subiu para o nível 5 (vida máxima +3, mana máxima +2) e liberou a habilidade Voz dos Mortos',
+      );
+      await use(kaua, morgana.id, voz).expect(200);
+      await use(kaua, morgana.id, sacrificio).expect(400);
+
+      // o nível 10 abre a 3ª; desfazer a subida tranca de novo
+      const to10 = await levelUp(5);
+      expect(to10.message).toContain('liberou a habilidade Sacrifício Macabro');
+      await use(kaua, morgana.id, sacrificio).expect(200);
+      await master.post(`/logs/${to10.id}/revert`).expect(200);
+      await use(kaua, morgana.id, sacrificio).expect(400);
+      await use(kaua, morgana.id, voz).expect(200);
     });
 
     it('habilidade só funciona com a aventura em andamento', async () => {
@@ -476,19 +530,20 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
         })
         .expect(200);
       expect(await charOf(id, morgana.id)).toMatchObject({
-        mana: 6,
+        mana: 8, // 10 − 4 + 2 do nível
+        manaMax: 12,
         xp: 50,
         level: 2,
-        hpMax: 32,
-        hp: 32,
+        hpMax: 33,
+        hp: 33,
       });
       await master.post(`/characters/${morgana.id}/adjust`, {}).expect(400);
     });
 
-    it('subir de nível dá +2 de vida máxima e atual; descer tira; desfazer devolve', async () => {
+    it('subir de nível dá +3 de vida e +2 de mana, máximas e atuais; descer tira; desfazer devolve', async () => {
       const { id, morgana } = await activeCampaign();
       await master
-        .post(`/characters/${morgana.id}/adjust`, { hp: -10 })
+        .post(`/characters/${morgana.id}/adjust`, { hp: -10, mana: -4 })
         .expect(200);
       const up = (
         await master
@@ -496,12 +551,14 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
           .expect(200)
       ).body as { log: Log };
       expect(up.log.message).toBe(
-        'Morgana subiu para o nível 3 (vida máxima +4)',
+        'Morgana subiu para o nível 3 (vida máxima +6, mana máxima +4)',
       );
       expect(await charOf(id, morgana.id)).toMatchObject({
         level: 3,
-        hpMax: 34,
-        hp: 24, // 20 + 4
+        hpMax: 36,
+        hp: 26, // 20 + 6
+        manaMax: 14,
+        mana: 10, // 6 + 4
       });
 
       await master.post(`/logs/${up.log.id}/revert`).expect(200);
@@ -509,6 +566,8 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
         level: 1,
         hpMax: 30,
         hp: 20,
+        manaMax: 10,
+        mana: 6,
       });
 
       // descer de nível tira a vida máxima e a atual não passa dela
@@ -523,11 +582,65 @@ describe('Campanha, lobby e jogo (Postgres real)', () => {
           .post(`/characters/${morgana.id}/adjust`, { level: -3 })
           .expect(200)
       ).body as { log: Log };
-      expect(down.log.message).toContain('(vida máxima −6)');
+      expect(down.log.message).toContain('(vida máxima −9, mana máxima −6)');
       expect(await charOf(id, morgana.id)).toMatchObject({
         level: 1,
         hpMax: 30,
+        manaMax: 10,
       });
+    });
+
+    it('o nível vai de 1 a 15: não passa do limite nem desce do 1', async () => {
+      const { id, morgana } = await activeCampaign();
+
+      // pedir mais do que cabe sobe só até o 15, e o log mostra o que de fato mudou
+      const up = (
+        await master
+          .post(`/characters/${morgana.id}/adjust`, { level: 20 })
+          .expect(200)
+      ).body as { log: Log };
+      expect(up.log.message).toBe(
+        'Morgana subiu para o nível 15 (vida máxima +42, mana máxima +28) e liberou as habilidades Voz dos Mortos e Sacrifício Macabro',
+      );
+      expect(await charOf(id, morgana.id)).toMatchObject({
+        level: 15,
+        hpMax: 72, // 30 + 14 × 3
+        hp: 72,
+        manaMax: 38, // 10 + 14 × 2
+        mana: 38,
+      });
+
+      // no 15 só subir de nível é recusado; XP junto com o nível passa e o nível fica
+      const max = await master
+        .post(`/characters/${morgana.id}/adjust`, { level: 1 })
+        .expect(400);
+      expect((max.body as { message: string }).message).toBe(
+        'Morgana já está no nível máximo (15)',
+      );
+      const xp = (
+        await master
+          .post(`/characters/${morgana.id}/adjust`, { xp: 20, level: 1 })
+          .expect(200)
+      ).body as { log: Log };
+      expect(xp.log.message).toBe('Morgana ganhou 20 de XP');
+      expect(await charOf(id, morgana.id)).toMatchObject({
+        level: 15,
+        xp: 20,
+      });
+
+      // desfazer a subida devolve o nível 1 e as máximas de antes
+      await master.post(`/logs/${up.log.id}/revert`).expect(200);
+      expect(await charOf(id, morgana.id)).toMatchObject({
+        level: 1,
+        hpMax: 30,
+        manaMax: 10,
+      });
+      const min = await master
+        .post(`/characters/${morgana.id}/adjust`, { level: -1 })
+        .expect(400);
+      expect((min.body as { message: string }).message).toBe(
+        'Morgana já está no nível 1',
+      );
     });
 
     it('ficha: mestre muda vida máxima, jogador só as anotações', async () => {

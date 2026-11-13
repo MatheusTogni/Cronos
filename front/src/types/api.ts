@@ -37,6 +37,8 @@ export interface Ability {
   description: string
   crits: Crit[] | null
   sortOrder: number
+  /** Nível em que a habilidade é liberada (1ª: 1, 2ª: 5, 3ª: 10). */
+  unlockLevel: number
 }
 
 export interface CharacterClass {

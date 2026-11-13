@@ -164,6 +164,8 @@ model Ability {
   /// Faixas de crítico, só como texto de referência: [{ "min": 18, "max": 20, "text": "..." }]
   crits       Json?
   sortOrder   Int         @default(0)
+  /// Nível em que a habilidade é liberada para o personagem (1ª: 1, 2ª: 5, 3ª: 10).
+  unlockLevel Int         @default(1)
 
   class CharacterClass @relation(fields: [classId], references: [id], onDelete: Cascade)
 

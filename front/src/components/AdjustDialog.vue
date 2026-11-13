@@ -5,6 +5,7 @@ import { useCampaignStore } from '@/stores/campaign'
 import type { ActionResult, Character } from '@/types/api'
 
 import type { AdjustKind } from '@/types/ui'
+import { HP_PER_LEVEL, MANA_PER_LEVEL, MAX_LEVEL } from '@/utils/classHooks'
 
 /** Ação rápida do mestre: dano, cura, mana, XP/nível e ouro. */
 const props = defineProps<{ character: Character | null; kind: AdjustKind }>()
@@ -51,7 +52,7 @@ const preview = computed(() => {
       return `Mana: ${c.mana} → ${next}/${c.manaMax}`
     }
     case 'xp':
-      return [n ? `XP: ${c.xp} → ${c.xp + n}` : '', level.value ? `Nível: ${c.level} → ${c.level + level.value}` : '']
+      return [n ? `XP: ${c.xp} → ${c.xp + n}` : '', level.value ? `Nível: ${c.level} → ${Math.min(MAX_LEVEL, Math.max(1, c.level + level.value))}` : '']
         .filter(Boolean)
         .join(' · ')
     case 'gold':
@@ -125,7 +126,8 @@ async function submit() {
             v-model.number="level"
             label="Níveis (ex.: 1 para subir, -1 para descer)"
             type="number"
-            hide-details
+            :hint="`Cada nível: +${HP_PER_LEVEL} vida e +${MANA_PER_LEVEL} mana. Vai do 1 ao ${MAX_LEVEL}; a 2ª skill abre no 5 e a 3ª no 10.`"
+            persistent-hint
             class="mt-3"
           />
 

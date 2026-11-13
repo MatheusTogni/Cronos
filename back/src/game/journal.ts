@@ -16,7 +16,7 @@ import {
   Summon,
 } from '@prisma/client';
 import { logSelect, toLogDto } from '../realtime/state';
-import { HP_PER_LEVEL } from './rules';
+import { HP_PER_LEVEL, MANA_PER_LEVEL, MAX_LEVEL } from './rules';
 
 type Db = Prisma.TransactionClient;
 
@@ -35,6 +35,8 @@ export interface StatDiff {
   /** Muda sozinho quando o nível muda (HP_PER_LEVEL por nível). */
   hpMax?: number;
   mana?: number;
+  /** Muda sozinho quando o nível muda (MANA_PER_LEVEL por nível). */
+  manaMax?: number;
   xp?: number;
   level?: number;
   gold?: number;
@@ -139,8 +141,9 @@ export class DeltaBuilder {
 /**
  * Aplica variações em vida/mana/XP/nível respeitando os limites e registra no
  * delta só o que de fato mudou (ex.: dano de 30 em quem tem 12 de vida → -12).
- * Subir de nível aumenta a vida máxima (e a atual) em HP_PER_LEVEL por nível;
- * descer tira o mesmo tanto da máxima.
+ * O nível fica entre 1 e MAX_LEVEL. Subir de nível aumenta a vida máxima em
+ * HP_PER_LEVEL e a mana máxima em MANA_PER_LEVEL por nível (e a vida e a mana
+ * atuais ganham o mesmo tanto); descer tira o mesmo tanto das máximas.
  */
 export async function applyStats(
   db: Db,
@@ -148,16 +151,22 @@ export async function applyStats(
   diff: StatDiff,
   delta: DeltaBuilder,
 ): Promise<{ character: Character; applied: Required<StatDiff> }> {
-  const level = Math.max(1, character.level + (diff.level ?? 0));
+  const level = clamp(character.level + (diff.level ?? 0), 1, MAX_LEVEL);
   const hpMax = Math.max(
     1,
     character.hpMax + (level - character.level) * HP_PER_LEVEL,
   );
+  const manaMax = Math.max(
+    0,
+    character.manaMax + (level - character.level) * MANA_PER_LEVEL,
+  );
   const hpGain = Math.max(0, hpMax - character.hpMax);
+  const manaGain = Math.max(0, manaMax - character.manaMax);
   const next = {
     hpMax,
+    manaMax,
     hp: clamp(character.hp + (diff.hp ?? 0) + hpGain, 0, hpMax),
-    mana: clamp(character.mana + (diff.mana ?? 0), 0, character.manaMax),
+    mana: clamp(character.mana + (diff.mana ?? 0) + manaGain, 0, manaMax),
     xp: Math.max(0, character.xp + (diff.xp ?? 0)),
     level,
     gold: Math.max(0, character.gold + (diff.gold ?? 0)),
@@ -165,6 +174,7 @@ export async function applyStats(
   const applied = {
     hp: next.hp - character.hp,
     hpMax: next.hpMax - character.hpMax,
+    manaMax: next.manaMax - character.manaMax,
     mana: next.mana - character.mana,
     xp: next.xp - character.xp,
     level: next.level - character.level,
@@ -184,14 +194,16 @@ export async function revertDelta(db: Db, delta: Delta) {
     const c = await db.character.findUnique({ where: { id: s.characterId } });
     if (!c) continue;
     const hpMax = Math.max(1, c.hpMax - (s.hpMax ?? 0));
+    const manaMax = Math.max(0, c.manaMax - (s.manaMax ?? 0));
     await db.character.update({
       where: { id: c.id },
       data: {
         hpMax,
+        manaMax,
         hp: clamp(c.hp - (s.hp ?? 0), 0, hpMax),
-        mana: clamp(c.mana - (s.mana ?? 0), 0, c.manaMax),
+        mana: clamp(c.mana - (s.mana ?? 0), 0, manaMax),
         xp: Math.max(0, c.xp - (s.xp ?? 0)),
-        level: Math.max(1, c.level - (s.level ?? 0)),
+        level: clamp(c.level - (s.level ?? 0), 1, MAX_LEVEL),
         gold: Math.max(0, c.gold - (s.gold ?? 0)),
       },
     });

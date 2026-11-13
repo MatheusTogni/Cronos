@@ -15,6 +15,7 @@ import {
   Prisma,
   PrismaClient,
 } from '@prisma/client';
+import { MAX_LEVEL, SKILL_UNLOCK_LEVELS } from '../src/game/rules';
 import { databaseUrl } from '../src/prisma/database-url';
 
 interface SeedAbility {
@@ -101,6 +102,7 @@ async function main() {
           description: a.description,
           crits: json(a.crits),
           sortOrder: i,
+          unlockLevel: SKILL_UNLOCK_LEVELS[i] ?? MAX_LEVEL,
         };
         await tx.ability.upsert({
           where: { classId_name: { classId: c.id, name: a.name } },

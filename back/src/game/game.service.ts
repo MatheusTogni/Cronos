@@ -43,6 +43,7 @@ import {
   revertDelta,
   writeLog,
 } from './journal';
+import { MAX_LEVEL } from './rules';
 import { shopItem } from './shop';
 
 type Tx = Prisma.TransactionClient;
@@ -82,6 +83,11 @@ export class GameService {
       if (!ability || ability.classId !== ch.classId) {
         throw new NotFoundException(
           'Habilidade não encontrada para esta classe',
+        );
+      }
+      if (ability.unlockLevel > ch.level) {
+        throw new BadRequestException(
+          `${ability.name} só é liberada no nível ${ability.unlockLevel} e ${ch.name} está no nível ${ch.level}`,
         );
       }
       if (ch.mana < ability.manaCost) {
@@ -124,6 +130,15 @@ export class GameService {
       const ch = await tx.character.findUniqueOrThrow({
         where: { id: characterId },
       });
+      // pedir só para subir/descer de nível quando já está no limite não faz nada
+      const onlyLevel = !req.hp && !req.mana && !req.xp && !req.gold;
+      if (onlyLevel && clamp(ch.level + req.level, 1, MAX_LEVEL) === ch.level) {
+        throw new BadRequestException(
+          req.level > 0
+            ? `${ch.name} já está no nível máximo (${MAX_LEVEL})`
+            : `${ch.name} já está no nível 1`,
+        );
+      }
       const delta = new DeltaBuilder();
       const { character: after, applied } = await applyStats(
         tx,
@@ -141,14 +156,26 @@ export class GameService {
       if (req.xp < 0) parts.push(`perdeu ${-req.xp} de XP`);
       if (req.gold > 0) parts.push(`recebeu ${req.gold} de ouro`);
       if (req.gold < 0) parts.push(`perdeu ${-req.gold} de ouro`);
-      if (req.level > 0) {
+      if (applied.level > 0) {
         parts.push(
-          `subiu para o nível ${after.level} (vida máxima +${applied.hpMax})`,
+          `subiu para o nível ${after.level} (vida máxima +${applied.hpMax}, mana máxima +${applied.manaMax})`,
         );
+        const unlocked = await tx.ability.findMany({
+          where: {
+            classId: ch.classId,
+            unlockLevel: { gt: ch.level, lte: after.level },
+          },
+          orderBy: { sortOrder: 'asc' },
+        });
+        if (unlocked.length) {
+          parts.push(
+            `liberou ${unlocked.length > 1 ? 'as habilidades' : 'a habilidade'} ${joinPt(unlocked.map((a) => a.name))}`,
+          );
+        }
       }
-      if (req.level < 0) {
+      if (applied.level < 0) {
         parts.push(
-          `voltou para o nível ${after.level} (vida máxima −${-applied.hpMax})`,
+          `voltou para o nível ${after.level} (vida máxima −${-applied.hpMax}, mana máxima −${-applied.manaMax})`,
         );
       }
 

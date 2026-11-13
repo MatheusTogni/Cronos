@@ -8,12 +8,20 @@ import { buzz } from '@/utils/haptics'
  * Só dispara quando o nível AUMENTA com a tela aberta: carregar a campanha ou
  * reconectar não conta. No modo leve fica um aviso simples, sem animação.
  */
-const props = defineProps<{ level: number | undefined; hpPerLevel?: number }>()
+const props = defineProps<{
+  level: number | undefined
+  hpPerLevel?: number
+  manaPerLevel?: number
+  /** As habilidades da classe, para avisar quais abriram neste nível. */
+  skills?: { name: string; unlockLevel: number }[]
+}>()
 
 const lite = useLiteStore()
 const shown = ref(false)
 const reached = ref(0)
 const hpGain = ref(0)
+const manaGain = ref(0)
+const unlocked = ref<string[]>([])
 let timer: ReturnType<typeof setTimeout> | undefined
 
 function close() {
@@ -27,6 +35,10 @@ watch(
     if (now === undefined || before === undefined || now <= before) return
     reached.value = now
     hpGain.value = (now - before) * (props.hpPerLevel ?? 0)
+    manaGain.value = (now - before) * (props.manaPerLevel ?? 0)
+    unlocked.value = (props.skills ?? [])
+      .filter((s) => s.unlockLevel > before && s.unlockLevel <= now)
+      .map((s) => s.name)
     shown.value = true
     buzz([120, 80, 220])
     clearTimeout(timer)
@@ -47,6 +59,13 @@ onBeforeUnmount(() => clearTimeout(timer))
           <div class="title-font number">Nível {{ reached }}</div>
           <div v-if="hpGain" class="gain">
             <v-icon icon="mdi-heart-plus" size="small" /> +{{ hpGain }} de vida máxima
+          </div>
+          <div v-if="manaGain" class="gain mana">
+            <v-icon icon="mdi-water-plus" size="small" /> +{{ manaGain }} de mana máxima
+          </div>
+          <div v-if="unlocked.length" class="gain unlock">
+            <v-icon icon="mdi-lock-open-variant" size="small" />
+            {{ unlocked.length > 1 ? 'Habilidades liberadas' : 'Nova habilidade' }}: {{ unlocked.join(', ') }}
           </div>
         </div>
       </div>
@@ -100,6 +119,16 @@ onBeforeUnmount(() => clearTimeout(timer))
 .gain {
   margin-top: 6px;
   color: rgb(var(--v-theme-success));
+}
+
+.gain.mana {
+  color: rgb(var(--v-theme-info));
+}
+
+.gain.unlock {
+  margin-top: 10px;
+  color: var(--gold-bright);
+  font-family: var(--font-title);
 }
 
 .lvl-enter-active,

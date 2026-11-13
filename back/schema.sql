@@ -98,6 +98,7 @@ CREATE TABLE "abilities" (
     "description" TEXT NOT NULL,
     "crits" JSONB,
     "sortOrder" INTEGER NOT NULL DEFAULT 0,
+    "unlockLevel" INTEGER NOT NULL DEFAULT 1,
 
     CONSTRAINT "abilities_pkey" PRIMARY KEY ("id")
 );

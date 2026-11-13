@@ -16,7 +16,7 @@ import { useCampaignStore } from '@/stores/campaign'
 import { useClassesStore } from '@/stores/classes'
 import { useNotifyStore } from '@/stores/notify'
 import { useRealtimeStore } from '@/stores/realtime'
-import { HP_PER_LEVEL } from '@/utils/classHooks'
+import { HP_PER_LEVEL, MANA_PER_LEVEL } from '@/utils/classHooks'
 import { buzz } from '@/utils/haptics'
 
 const route = useRoute()
@@ -200,7 +200,12 @@ watch(tab, (t) => {
       <ImageOverlay :image="state.shownImage" />
       <ShopOverlay v-if="state.status === 'ACTIVE'" v-model="shopVisible" />
       <TransferInbox v-if="state.status === 'ACTIVE'" />
-      <LevelUpEffect :level="me?.level" :hp-per-level="HP_PER_LEVEL" />
+      <LevelUpEffect
+        :level="me?.level"
+        :hp-per-level="HP_PER_LEVEL"
+        :mana-per-level="MANA_PER_LEVEL"
+        :skills="myClass?.abilities"
+      />
     </template>
   </div>
 </template>
