@@ -1,0 +1,18 @@
+# Segredos: nunca versionar um .env de verdade (só os *.example)
+.env*
+!.env*.example
+
+# Sistema e editores
+.DS_Store
+Thumbs.db
+.idea
+*.swp
+
+# Dados locais e artefatos
+node_modules
+dist
+coverage
+*.log
+*.tsbuildinfo
+.pgdata
+uploads

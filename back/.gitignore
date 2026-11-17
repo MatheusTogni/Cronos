@@ -1,7 +1,9 @@
 node_modules
 dist
 coverage
-.env
+# qualquer .env (.env.production, .env.local...) fica de fora; só os *.example sobem
+.env*
+!.env*.example
 *.log
 *.tsbuildinfo
 .pgdata
