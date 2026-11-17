@@ -27,9 +27,14 @@ export default async function globalSetup() {
   process.env.DATABASE_URL = `postgresql://postgres:postgres@localhost:${port}/rpg_test`;
   process.env.JWT_SECRET = 'segredo-de-teste';
   process.env.UPLOAD_DIR = join(dir, 'uploads');
+  // Os testes fazem muitos logins do mesmo IP; o limite de login só é testado em throttle.e2e-spec.ts.
+  process.env.THROTTLE_DISABLED = '1';
 
   const opts = { env: process.env, stdio: 'pipe' };
-  execSync('npx prisma db execute --file schema.sql --schema prisma/schema.prisma', opts);
+  execSync(
+    'npx prisma db execute --file schema.sql --schema prisma/schema.prisma',
+    opts,
+  );
   execSync('npx prisma db seed', opts);
 
   globalThis.__RPG_PG__ = pg;
