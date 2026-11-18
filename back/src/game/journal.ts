@@ -237,10 +237,13 @@ export async function revertDelta(db: Db, delta: Delta) {
   for (const i of delta.itemQty ?? []) {
     const item = await db.inventoryItem.findUnique({ where: { id: i.itemId } });
     if (!item) continue;
-    await db.inventoryItem.update({
-      where: { id: item.id },
-      data: { qty: Math.max(0, item.qty - i.qty) },
-    });
+    const qty = item.qty - i.qty;
+    // sem unidades não sobra quadradinho na mochila
+    if (qty <= 0) {
+      await db.inventoryItem.delete({ where: { id: item.id } });
+    } else {
+      await db.inventoryItem.update({ where: { id: item.id }, data: { qty } });
+    }
   }
 
   const created = delta.created ?? {};

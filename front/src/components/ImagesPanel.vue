@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api, errorMessage } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
 import { useConfirmStore } from '@/stores/confirm'
@@ -56,16 +56,50 @@ async function upload() {
   }
 }
 
-async function show(img: CampaignImage) {
-  busyId.value = img.id
-  await campaign.act(() =>
-    api.post(`/campaigns/${props.campaignId}/show-image`, { imageId: img.id }).then(() => ({ data: null })),
-  )
-  busyId.value = null
+// ── mostrar: para todos ou só para alguns jogadores ──
+const dialog = ref(false)
+const picking = ref<CampaignImage | null>(null)
+const audience = ref<'all' | 'some'>('all')
+const chosen = ref<string[]>([])
+const players = computed(() => campaign.state?.players ?? [])
+
+function askShow(img: CampaignImage) {
+  picking.value = img
+  audience.value = 'all'
+  chosen.value = []
+  dialog.value = true
 }
 
-const hide = () =>
-  campaign.act(() => api.post(`/campaigns/${props.campaignId}/hide-image`).then(() => ({ data: null })))
+async function confirmShow() {
+  const img = picking.value
+  if (!img) return
+  const userIds = audience.value === 'some' ? [...chosen.value] : []
+  dialog.value = false
+  busyId.value = img.id
+  const ok = await campaign.act(() =>
+    api.post(`/campaigns/${props.campaignId}/show-image`, { imageId: img.id, userIds }).then(() => ({ data: null })),
+  )
+  busyId.value = null
+  // só para alguns: o servidor não guarda, então a tela do mestre lembra para poder ocultar
+  if (ok) campaign.privateShown = userIds.length ? { imageId: img.id, names: userIds.map(campaign.playerName) } : null
+}
+
+async function hide() {
+  const ok = await campaign.act(() =>
+    api.post(`/campaigns/${props.campaignId}/hide-image`).then(() => ({ data: null })),
+  )
+  if (ok) campaign.privateShown = null
+}
+
+/** O que está na tela dos jogadores agora: para todos (vem do estado) ou só para alguns. */
+const current = computed(() => {
+  const all = campaign.state?.shownImage
+  if (all) return { imageId: all.id, title: all.title, names: null as string[] | null }
+  const some = campaign.privateShown
+  if (!some) return null
+  const title = images.value.find((i) => i.id === some.imageId)?.title ?? ''
+  return { imageId: some.imageId, title, names: some.names }
+})
 
 async function remove(img: CampaignImage) {
   const ok = await confirm.ask({
@@ -126,8 +160,9 @@ onMounted(load)
       </div>
     </v-card>
 
-    <v-alert v-if="campaign.state?.shownImage" type="info" variant="tonal" class="mb-4">
-      Mostrando agora: <strong>{{ campaign.state.shownImage.title }}</strong>
+    <v-alert v-if="current" type="info" variant="tonal" class="mb-4">
+      Mostrando agora: <strong>{{ current.title }}</strong>
+      <span v-if="current.names"> — só para {{ current.names.join(', ') }}</span>
       <template #append>
         <v-btn variant="flat" color="surface-bright" prepend-icon="mdi-eye-off" @click="hide">Ocultar</v-btn>
       </template>
@@ -141,7 +176,7 @@ onMounted(load)
         v-for="img in images"
         :key="img.id"
         class="card-frame img-card"
-        :class="{ shown: campaign.state?.shownImage?.id === img.id }"
+        :class="{ shown: current?.imageId === img.id }"
         color="surface"
       >
         <v-img :src="img.url" :alt="img.title" aspect-ratio="1.4" cover />
@@ -159,13 +194,13 @@ onMounted(load)
           <div v-else class="img-title" :title="img.title">{{ img.title }}</div>
           <div class="img-actions">
             <v-btn
-              v-if="campaign.state?.shownImage?.id !== img.id"
+              v-if="current?.imageId !== img.id"
               size="small"
               color="secondary"
               variant="flat"
               prepend-icon="mdi-eye"
               :loading="busyId === img.id"
-              @click="show(img)"
+              @click="askShow(img)"
             >
               Mostrar
             </v-btn>
@@ -184,6 +219,42 @@ onMounted(load)
         </div>
       </v-card>
     </div>
+
+    <v-dialog v-model="dialog" max-width="420">
+      <v-card class="card-frame" color="surface">
+        <v-card-title class="title-font pt-5 px-6 pick-title">Mostrar para quem?</v-card-title>
+        <v-card-text class="px-6">
+          <v-radio-group v-model="audience" hide-details>
+            <v-radio label="Todos os jogadores" value="all" />
+            <v-radio label="Só alguns jogadores" value="some" />
+          </v-radio-group>
+          <div v-if="audience === 'some'" class="pick-list">
+            <v-checkbox
+              v-for="p in players"
+              :key="p.userId"
+              v-model="chosen"
+              :value="p.userId"
+              :label="p.displayName"
+              density="compact"
+              hide-details
+            />
+            <div v-if="!players.length" class="empty">Ainda não há jogadores nesta campanha.</div>
+          </div>
+        </v-card-text>
+        <v-card-actions class="px-6 pb-5 pt-2 justify-end ga-2">
+          <v-btn variant="text" @click="dialog = false">Cancelar</v-btn>
+          <v-btn
+            color="secondary"
+            variant="flat"
+            prepend-icon="mdi-eye"
+            :disabled="audience === 'some' && !chosen.length"
+            @click="confirmShow"
+          >
+            Mostrar
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -231,5 +302,17 @@ onMounted(load)
   align-items: center;
   gap: 2px;
   margin-top: 8px;
+}
+
+.pick-title {
+  white-space: normal;
+  font-size: 1.2rem;
+}
+
+.pick-list {
+  margin-top: 4px;
+  padding-left: 4px;
+  max-height: 40vh;
+  overflow-y: auto;
 }
 </style>

@@ -8,6 +8,7 @@ import {
   Campaign,
   CampaignStatus,
   Character,
+  InventoryItem,
   LogType,
   Prisma,
   Transfer,
@@ -20,10 +21,19 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { LogDto } from '../realtime/state';
 import { OfferDto } from './dto';
+import { backpackProblem, lockBackpack, stackFor } from './backpack';
 import { DeltaBuilder, writeLog } from './journal';
 
 type Tx = Prisma.TransactionClient;
 type TransferFull = Transfer & { from: Character; to: Character };
+
+/** Um item do inventário com a quantidade que vai mudar de dono. */
+interface Stacked {
+  id: string;
+  code: string | null;
+  name: string;
+  qty: number;
+}
 
 /** A oferta como o app a recebe (só nomes e quantidades, nada secreto). */
 export interface TransferView {
@@ -96,8 +106,8 @@ export class TransfersService {
       );
     }
 
-    let give: { id: string; name: string; qty: number } | null = null;
-    let ask: { id: string; name: string; qty: number } | null = null;
+    let give: Stacked | null = null;
+    let ask: Stacked | null = null;
     let gold = 0;
 
     if (dto.kind === TransferKind.GIFT) {
@@ -129,6 +139,10 @@ export class TransfersService {
       give = await this.stack(this.prisma, from, dto.itemId, dto.qty ?? 1);
       ask = await this.stack(this.prisma, to, dto.askItemId, dto.askQty ?? 1);
     }
+
+    // não adianta oferecer o que não cabe na mochila de quem recebe
+    const full = await this.roomProblem(this.prisma, from, to, give, ask);
+    if (full) throw new BadRequestException(full);
 
     const created = await this.prisma.transfer.create({
       data: {
@@ -179,38 +193,43 @@ export class TransfersService {
         throw new BadRequestException('Essa oferta não está mais aberta');
       }
 
+      // segura as duas mochilas (sempre na mesma ordem, para uma não travar na outra)
+      for (const id of [t.fromId, t.toId].sort()) await lockBackpack(tx, id);
+
       const delta = new DeltaBuilder();
       let message: string;
       if (t.kind === TransferKind.GIFT && t.giveGold > 0) {
         await this.moveGold(tx, t.fromId, t.toId, t.giveGold, delta);
         message = `${t.from.name} deu ${t.giveGold} de ouro a ${t.to.name}`;
       } else if (t.kind === TransferKind.GIFT) {
-        await this.moveItem(
+        const item = await this.takeItem(
           tx,
           t.giveItemId!,
           t.fromId,
-          t.toId,
           t.giveQty,
           delta,
         );
+        await this.giveItem(tx, t.to, item, t.giveQty, delta);
         message = `${t.from.name} deu ${qtyLabel(t.giveQty)}${t.giveName} a ${t.to.name}`;
       } else {
-        await this.moveItem(
+        // primeiro cada um solta o que entrega, depois cada um recebe: quem troca
+        // uma pilha inteira libera o quadradinho antes de pegar o outro item
+        const given = await this.takeItem(
           tx,
           t.giveItemId!,
           t.fromId,
-          t.toId,
           t.giveQty,
           delta,
         );
-        await this.moveItem(
+        const asked = await this.takeItem(
           tx,
           t.askItemId!,
           t.toId,
-          t.fromId,
           t.askQty,
           delta,
         );
+        await this.giveItem(tx, t.to, given, t.giveQty, delta);
+        await this.giveItem(tx, t.from, asked, t.askQty, delta);
         message = `${t.from.name} e ${t.to.name} trocaram ${qtyLabel(t.giveQty)}${t.giveName} por ${qtyLabel(t.askQty)}${t.askName}`;
       }
 
@@ -304,7 +323,7 @@ export class TransfersService {
         `${owner.name} só tem ${item.qty}× ${item.name}`,
       );
     }
-    return { id: item.id, name: item.name, qty };
+    return { id: item.id, code: item.code, name: item.name, qty };
   }
 
   /** O que impede a oferta de valer agora (null = está tudo certo). */
@@ -315,6 +334,8 @@ export class TransfersService {
         return `${t.from.name} não tem mais ${t.giveGold} de ouro`;
       }
     }
+    let give: Stacked | null = null;
+    let ask: Stacked | null = null;
     if (t.giveItemId) {
       const item = await db.inventoryItem.findFirst({
         where: { id: t.giveItemId, characterId: t.fromId },
@@ -323,6 +344,7 @@ export class TransfersService {
       if (item.qty < t.giveQty) {
         return `${t.from.name} só tem ${item.qty}× ${item.name}`;
       }
+      give = { id: item.id, code: item.code, name: item.name, qty: t.giveQty };
     }
     if (t.askItemId) {
       const item = await db.inventoryItem.findFirst({
@@ -332,21 +354,53 @@ export class TransfersService {
       if (item.qty < t.askQty) {
         return `${t.to.name} só tem ${item.qty}× ${item.name}`;
       }
+      ask = { id: item.id, code: item.code, name: item.name, qty: t.askQty };
+    }
+    return this.roomProblem(db, t.from, t.to, give, ask);
+  }
+
+  /**
+   * Cabe o que cada um recebe na mochila (9 itens diferentes), já contando o que
+   * cada um entrega? Devolve o motivo de não caber, ou null.
+   */
+  private async roomProblem(
+    db: Tx | PrismaService,
+    from: Character,
+    to: Character,
+    give: Stacked | null,
+    ask: Stacked | null,
+  ) {
+    if (give) {
+      const problem = await backpackProblem(
+        db,
+        to,
+        give,
+        ask ? { id: ask.id, qty: ask.qty } : null,
+      );
+      if (problem) return problem;
+    }
+    if (ask) {
+      const problem = await backpackProblem(
+        db,
+        from,
+        ask,
+        give ? { id: give.id, qty: give.qty } : null,
+      );
+      if (problem) return problem;
     }
     return null;
   }
 
-  /** Tira `qty` do dono (direto no banco) e entrega ao outro, juntando na pilha igual. */
-  private async moveItem(
+  /** Tira `qty` do dono (direto no banco) e devolve o item como estava. */
+  private async takeItem(
     tx: Tx,
     itemId: string,
-    fromId: string,
-    toId: string,
+    ownerId: string,
     qty: number,
     delta: DeltaBuilder,
-  ) {
+  ): Promise<InventoryItem> {
     const item = await tx.inventoryItem.findFirst({
-      where: { id: itemId, characterId: fromId },
+      where: { id: itemId, characterId: ownerId },
     });
     if (!item || item.qty < qty) {
       throw new BadRequestException(
@@ -354,7 +408,7 @@ export class TransfersService {
       );
     }
     const took = await tx.inventoryItem.updateMany({
-      where: { id: itemId, characterId: fromId, qty: { gte: qty } },
+      where: { id: itemId, characterId: ownerId, qty: { gte: qty } },
       data: { qty: { decrement: qty } },
     });
     if (!took.count) {
@@ -370,16 +424,21 @@ export class TransfersService {
     } else {
       delta.itemQty(itemId, -qty);
     }
+    return item;
+  }
 
-    const same = await tx.inventoryItem.findFirst({
-      where: {
-        characterId: toId,
-        code: item.code,
-        name: item.name,
-        description: item.description,
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+  /**
+   * Entrega `qty` do item ao personagem: soma na pilha igual ou ocupa um
+   * quadradinho livre (se a mochila está cheia, recusa e a transação desfaz tudo).
+   */
+  private async giveItem(
+    tx: Tx,
+    to: Character,
+    item: InventoryItem,
+    qty: number,
+    delta: DeltaBuilder,
+  ) {
+    const same = await stackFor(tx, to, item);
     if (same) {
       await tx.inventoryItem.update({
         where: { id: same.id },
@@ -389,7 +448,7 @@ export class TransfersService {
     } else {
       const copy = await tx.inventoryItem.create({
         data: {
-          characterId: toId,
+          characterId: to.id,
           name: item.name,
           qty,
           description: item.description,

@@ -21,6 +21,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { isMasterOnlyLog, LogDto } from '../realtime/state';
+import { lockBackpack, stackFor } from './backpack';
 import {
   AdjustDto,
   AdjustSummonDto,
@@ -483,23 +484,47 @@ export class GameService {
 
   async createItem(characterId: string, dto: CreateItemDto, user: AuthUser) {
     const ctx = await this.characterCtx(characterId, user, { owner: false });
+    const qty = dto.qty ?? 1;
     return this.run(ctx.campaign.id, async (tx) => {
-      const item = await tx.inventoryItem.create({
-        data: {
-          characterId,
-          name: dto.name,
-          qty: dto.qty ?? 1,
-          description: dto.description || null,
-        },
+      await lockBackpack(tx, characterId);
+      // o mesmo item soma na pilha que a pessoa já tem; um item novo precisa de
+      // um quadradinho livre na mochila (senão, recusa)
+      const stack = await stackFor(tx, ctx.character, {
+        code: null,
+        name: dto.name,
       });
       const delta = new DeltaBuilder();
-      delta.created('items', item.id);
+      let name = dto.name;
+      if (stack) {
+        await tx.inventoryItem.update({
+          where: { id: stack.id },
+          data: {
+            qty: { increment: qty },
+            // a pilha sem descrição ganha a que o mestre escreveu agora
+            ...(dto.description && !stack.description
+              ? { description: dto.description }
+              : {}),
+          },
+        });
+        delta.itemQty(stack.id, qty);
+        name = stack.name;
+      } else {
+        const item = await tx.inventoryItem.create({
+          data: {
+            characterId,
+            name: dto.name,
+            qty,
+            description: dto.description || null,
+          },
+        });
+        delta.created('items', item.id);
+      }
       return writeLog(tx, {
         campaignId: ctx.campaign.id,
         actorUserId: user.id,
         characterId,
         type: LogType.ITEM_ADDED,
-        message: `${ctx.character.name} pegou ${item.qty > 1 ? `${item.qty}× ` : ''}${item.name}`,
+        message: `${ctx.character.name} pegou ${qty > 1 ? `${qty}× ` : ''}${name}`,
         delta,
       });
     });
@@ -508,6 +533,20 @@ export class GameService {
   async updateItem(itemId: string, dto: UpdateItemDto, user: AuthUser) {
     const { ctx, item } = await this.itemCtx(itemId, user);
     return this.run(ctx.campaign.id, async (tx) => {
+      if (dto.qty === 0) {
+        // sem unidades não sobra quadradinho: o item sai da mochila
+        const removed = new DeltaBuilder();
+        removed.deletedItem(item);
+        await tx.inventoryItem.delete({ where: { id: itemId } });
+        return writeLog(tx, {
+          campaignId: ctx.campaign.id,
+          actorUserId: user.id,
+          characterId: ctx.character.id,
+          type: LogType.ITEM_REMOVED,
+          message: `${ctx.character.name} não tem mais ${item.name}`,
+          delta: removed,
+        });
+      }
       await tx.inventoryItem.update({
         where: { id: itemId },
         data: {
@@ -600,14 +639,17 @@ export class GameService {
       const delta = new DeltaBuilder();
       delta.stat(characterId, { gold: -product.price });
 
-      const stack = await tx.inventoryItem.findFirst({
-        where: { characterId, code: product.code },
-        orderBy: { createdAt: 'asc' },
-      });
+      // o mesmo item soma na pilha; um item novo precisa de um quadradinho
+      // livre (se a mochila está cheia, recusa e a transação desfaz o pagamento)
+      const stack = await stackFor(tx, ctx.character, product);
       if (stack) {
         await tx.inventoryItem.update({
           where: { id: stack.id },
-          data: { qty: { increment: 1 } },
+          data: {
+            qty: { increment: 1 },
+            // pilha dada à mão pelo mestre vira a do catálogo (passa a poder ser usada)
+            ...(stack.code ? {} : { code: product.code }),
+          },
         });
         delta.itemQty(stack.id, 1);
       } else {

@@ -16,6 +16,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Role } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -60,6 +62,13 @@ class RenameImageDto {
 class ShowImageDto {
   @IsUUID()
   imageId!: string;
+
+  /** Quem vê a imagem. Ausente ou vazio = todos os jogadores. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsUUID('4', { each: true })
+  userIds?: string[];
 }
 
 @Controller()
@@ -122,7 +131,7 @@ export class ImagesController {
     @Body() dto: ShowImageDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.images.show(id, dto.imageId, user);
+    return this.images.show(id, dto.imageId, dto.userIds, user);
   }
 
   @Post('campaigns/:id/hide-image')

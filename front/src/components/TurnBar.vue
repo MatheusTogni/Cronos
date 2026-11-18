@@ -44,12 +44,20 @@ async function endTurn() {
 
 <template>
   <div v-if="combat" class="turn-bar card-frame" :class="{ mine: campaign.isMyTurn, pulse }" role="status">
-    <v-icon :icon="campaign.isMyTurn ? 'mdi-sword' : 'mdi-timer-sand'" />
+    <v-icon :icon="campaign.isMyTurn ? 'mdi-sword' : 'mdi-timer-sand'" size="22" />
     <div class="text">
       <div class="whose title-font">{{ whose }}</div>
       <div class="round">Rodada {{ combat.round }}</div>
     </div>
-    <v-btn v-if="campaign.isMyTurn" color="primary" variant="flat" :loading="busy" prepend-icon="mdi-skip-next" @click="endTurn">
+    <v-btn
+      v-if="campaign.isMyTurn"
+      color="primary"
+      variant="flat"
+      size="small"
+      :loading="busy"
+      prepend-icon="mdi-skip-next"
+      @click="endTurn"
+    >
       Passar a vez
     </v-btn>
   </div>
@@ -59,9 +67,9 @@ async function endTurn() {
 .turn-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  margin-bottom: 12px;
+  gap: 10px;
+  padding: 6px 12px;
+  margin-bottom: 8px;
   border-radius: 8px;
   background: rgb(var(--v-theme-surface));
 }
@@ -102,12 +110,17 @@ async function endTurn() {
 }
 
 .whose {
-  font-size: 1.1rem;
+  font-size: 1rem;
+  line-height: 1.2;
   color: var(--gold-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .round {
-  font-size: 0.85rem;
+  font-size: 0.75rem;
+  line-height: 1.1;
   opacity: 0.65;
 }
 </style>

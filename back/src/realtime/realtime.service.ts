@@ -23,6 +23,7 @@ import {
  *  - campaign:patch     (só o que mudou desde o último envio) → idem
  *  - log:new            (uma entrada do log)          → idem
  *  - log:reverted       ({ id })                      → idem
+ *  - image:shown        ({ campaignId, image })       → imagem só para alguns jogadores (ver emitPrivateImage)
  *  - transfer:new / transfer:updated (oferta de doação/troca) → só os dois jogadores envolvidos
  *  - campaigns:changed  (sem payload)                 → para todos os jogadores
  *  - campaign:kicked    ({ campaignId })              → para o jogador removido
@@ -46,11 +47,31 @@ export class RealtimeService {
     private readonly prisma: PrismaService,
   ) {}
 
+  /**
+   * Fila de envios de cada campanha. Dois `broadcastState` ao mesmo tempo (ex.:
+   * o mestre fecha a loja enquanto um jogador compra) podiam terminar fora de
+   * ordem: o que montou o estado mais velho enviava por último e desfazia o
+   * dado mais novo nos clientes (a tela do mestre ficava com a loja "aberta").
+   * Em fila, cada montagem só começa depois da anterior terminar, então o
+   * estado lido nunca anda para trás.
+   */
+  private readonly queues = new Map<string, Promise<void>>();
+
   private get server() {
     return this.gateway.server;
   }
 
-  async broadcastState(campaignId: string) {
+  broadcastState(campaignId: string): Promise<void> {
+    const previous = this.queues.get(campaignId) ?? Promise.resolve();
+    // sendState nunca rejeita, então a fila não trava num erro
+    const run = previous.then(() => this.sendState(campaignId));
+    this.queues.set(campaignId, run);
+    return run.finally(() => {
+      if (this.queues.get(campaignId) === run) this.queues.delete(campaignId);
+    });
+  }
+
+  private async sendState(campaignId: string) {
     try {
       const full = await buildCampaignState(this.prisma, campaignId);
       const views: Record<Audience, CampaignState> = {
@@ -89,6 +110,30 @@ export class RealtimeService {
       this.server
         ?.to(rooms.campaign(campaignId, audience))
         .emit('log:new', logView(entry, audience));
+    }
+  }
+
+  /**
+   * Imagem mostrada só a alguns jogadores: vai só à sala pessoal de cada um
+   * (nada fica guardado no banco: é um aviso do momento). Os outros jogadores
+   * da sala recebem "nada", para sumir o que viam antes. Com `image` nula e
+   * `userIds` vazio, limpa a de todos.
+   */
+  emitPrivateImage(
+    campaignId: string,
+    image: { id: string; url: string } | null,
+    userIds: string[],
+  ) {
+    const server = this.server;
+    if (!server) return;
+    const chosen = userIds.map((userId) => rooms.user(userId));
+    server
+      .to(rooms.campaign(campaignId, 'players'))
+      .except(chosen)
+      .emit('image:shown', { campaignId, image: null });
+    if (!image) return;
+    for (const room of chosen) {
+      server.to(room).emit('image:shown', { campaignId, image });
     }
   }
 

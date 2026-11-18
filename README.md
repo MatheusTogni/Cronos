@@ -22,14 +22,14 @@ Prints e GIFs ajudam muito a vitrine. Coloque as imagens em docs/img/ e descomen
 
 ## O que tem
 
-- **Ficha ao vivo** no celular: vida, mana, habilidades, invocações, condições, inventário e anotações, sincronizados por WebSocket.
+- **Ficha ao vivo** no celular, enxuta: vida, mana, ouro, habilidades, invocações e condições na página; **mochila 3×3** (9 itens diferentes, quantidades somam na pilha), doar/trocar e anotações em atalhos com ícone. Tudo sincronizado por WebSocket.
 - **Painel do mestre**: dano, cura, mana, XP/nível, condições, itens, criaturas e inimigos em ações rápidas, com **log da mesa e desfazer** para qualquer ação.
 - **Lobby e campanhas**: o mestre abre a campanha, os jogadores entram, escolhem a classe e ficam prontos.
 - **9 classes** com 3 habilidades cada, liberadas por nível (até o 15).
-- **Combate por turnos** com vez travada e vibração no celular de quem joga.
+- **Combate por turnos** com vez travada, vibração no celular de quem joga, efeito de tela ao começar e ao terminar e as habilidades em quadradinhos durante o combate (segure para ver os detalhes).
 - **Condições com carta animada** que gira na tela do jogador quando o mestre aplica.
 - **Loja do mercador** (portas que se abrem, ouro, poções) e **doações e trocas** entre jogadores com aceite.
-- **Imagens do mestre** exibidas na tela de todos.
+- **Imagens do mestre** exibidas na tela de todos ou só dos jogadores que ele escolher.
 - **PWA**: instala na tela inicial e abre em tela cheia.
 - **Segredo do mestre protegido**: o servidor nem envia a vida dos inimigos aos jogadores.
 

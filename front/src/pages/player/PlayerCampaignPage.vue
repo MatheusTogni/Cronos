@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CharacterCard from '@/components/CharacterCard.vue'
+import CombatEffect from '@/components/CombatEffect.vue'
 import ConditionReveal from '@/components/ConditionReveal.vue'
 import DiceRoller from '@/components/DiceRoller.vue'
 import ImageOverlay from '@/components/ImageOverlay.vue'
@@ -69,18 +70,13 @@ watch(
   },
 )
 
-// o mestre abre a loja: as portas se abrem na tela; ao fechar, a loja some com um aviso
-const shopVisible = ref(false)
+// o mestre abre a loja: as portas se abrem na tela e ela fica até o mestre fechar
+// (o ShopOverlay cuida da tela e do efeito de fechar; aqui só o aviso e a vibração)
 watch(
   () => state.value?.shopOpen,
   (open, before) => {
-    if (open) {
-      shopVisible.value = true
-      if (before === false) buzz(120)
-    } else {
-      shopVisible.value = false
-      if (before) notify.info('O mercador fechou as portas')
-    }
+    if (open && before === false) buzz(120)
+    if (!open && before) notify.info('O mercador fechou as portas')
   },
   { immediate: true },
 )
@@ -109,13 +105,15 @@ watch(tab, (t) => {
     <v-progress-linear v-if="campaign.loading && !state" indeterminate color="secondary" />
 
     <template v-if="state">
-      <div class="page-header">
-        <v-btn icon="mdi-arrow-left" variant="text" to="/jogador" aria-label="Voltar para campanhas" />
+      <div class="page-header slim">
+        <v-btn icon="mdi-arrow-left" variant="text" size="small" to="/jogador" aria-label="Voltar para campanhas" />
         <h1>{{ state.name }}</h1>
         <v-icon
           :icon="realtime.connected ? 'mdi-access-point' : 'mdi-access-point-off'"
           :color="realtime.connected ? 'success' : 'error'"
+          size="small"
           :title="realtime.connected ? 'Ao vivo' : 'Sem conexão ao vivo — tentando reconectar'"
+          :aria-label="realtime.connected ? 'Ao vivo' : 'Sem conexão ao vivo'"
         />
       </div>
 
@@ -140,18 +138,7 @@ watch(tab, (t) => {
       <!-- aventura -->
       <template v-else-if="state.status === 'ACTIVE'">
         <TurnBar />
-        <v-btn
-          v-if="state.shopOpen && !shopVisible"
-          block
-          color="secondary"
-          variant="tonal"
-          prepend-icon="mdi-storefront-outline"
-          class="mb-4"
-          @click="shopVisible = true"
-        >
-          A loja do mercador está aberta
-        </v-btn>
-        <v-tabs v-model="tab" color="secondary" grow class="mb-4">
+        <v-tabs v-model="tab" color="secondary" grow density="compact" class="mb-3">
           <v-tab value="ficha" prepend-icon="mdi-card-account-details">Ficha</v-tab>
           <v-tab value="party" prepend-icon="mdi-account-group">Party</v-tab>
           <v-tab value="log" prepend-icon="mdi-script-text">
@@ -190,9 +177,10 @@ watch(tab, (t) => {
         </v-window>
       </template>
 
-      <ImageOverlay :image="state.shownImage" />
-      <ShopOverlay v-if="state.status === 'ACTIVE'" v-model="shopVisible" />
+      <ImageOverlay :image="state.shownImage ?? campaign.privateImage" />
+      <ShopOverlay v-if="state.status === 'ACTIVE'" :open="state.shopOpen" />
       <TransferInbox v-if="state.status === 'ACTIVE'" />
+      <CombatEffect />
       <ConditionReveal :conditions="me?.conditions" />
       <LevelUpEffect
         :level="me?.level"
@@ -207,7 +195,29 @@ watch(tab, (t) => {
 <style scoped>
 .narrow {
   max-width: 720px;
+  /* topo enxuto: o celular não tem altura de sobra */
+  padding-top: 12px;
   padding-bottom: 96px;
+}
+
+/* cabeçalho da campanha numa linha só: sem o título grande e sem a divisória ornamental */
+.page-header.slim {
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.page-header.slim h1 {
+  min-width: 0;
+  font-size: 1.3rem;
+  letter-spacing: 0.06em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-header.slim::after {
+  display: none;
 }
 
 .desc {

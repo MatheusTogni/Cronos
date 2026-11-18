@@ -159,9 +159,16 @@ export async function buildCampaignState(
 
 export type CampaignState = Awaited<ReturnType<typeof buildCampaignState>>;
 
-/** O mesmo estado sem o que é só do mestre: os inimigos (nome, vida, condições e anotações). */
+/**
+ * O mesmo estado sem o que é só do mestre: os inimigos (nome, vida, condições
+ * e anotações) e o título da imagem (o jogador vê a imagem, não o nome dela).
+ */
 export function forPlayers(state: CampaignState): CampaignState {
-  return { ...state, npcs: [] };
+  return {
+    ...state,
+    npcs: [],
+    shownImage: state.shownImage && { ...state.shownImage, title: '' },
+  };
 }
 
 // ───────────── envio por partes ─────────────

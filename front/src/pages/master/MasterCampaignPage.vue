@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AdjustDialog from '@/components/AdjustDialog.vue'
 import CharacterCard from '@/components/CharacterCard.vue'
+import CombatEffect from '@/components/CombatEffect.vue'
 import CombatPanel from '@/components/CombatPanel.vue'
 import ConditionDialog from '@/components/ConditionDialog.vue'
 import DiceRoller from '@/components/DiceRoller.vue'
@@ -10,6 +11,7 @@ import ImagesPanel from '@/components/ImagesPanel.vue'
 import LogFeed from '@/components/LogFeed.vue'
 import NpcCard from '@/components/NpcCard.vue'
 import QuickFormDialog from '@/components/QuickFormDialog.vue'
+import TakeItemDialog from '@/components/TakeItemDialog.vue'
 import { api } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
 import { useClassesStore } from '@/stores/classes'
@@ -110,6 +112,13 @@ watch(
     if (target.value && fresh !== target.value) target.value = fresh
   },
 )
+
+// tirar item da mochila de um jogador (o mesmo `target` do diálogo acompanha o estado ao vivo)
+const takeOpen = ref(false)
+function openTake(c: Character) {
+  target.value = c
+  takeOpen.value = true
+}
 
 // condição tem diálogo próprio (catálogo, turnos, vida por turno), para
 // personagem, invocação ou inimigo
@@ -265,9 +274,11 @@ const shopBusy = ref(false)
 async function toggleShop() {
   if (!state.value) return
   shopBusy.value = true
-  await campaign.act(() =>
+  const ok = await campaign.act(() =>
     api.post<ActionResult>(`/campaigns/${id.value}/shop/${state.value?.shopOpen ? 'close' : 'open'}`),
   )
+  // falhou (ex.: "A loja já está fechada"): a tela estava velha; recarrega o estado real
+  if (!ok) await campaign.refresh().catch(() => {})
   shopBusy.value = false
 }
 </script>
@@ -433,6 +444,7 @@ async function toggleShop() {
                       <v-list density="compact">
                         <v-list-item prepend-icon="mdi-alert-decagram" title="Condição" @click="openCondition({ kind: 'character', id: c.id, name: c.name })" />
                         <v-list-item prepend-icon="mdi-bag-personal" title="Dar item" @click="openForm(c, 'item')" />
+                        <v-list-item prepend-icon="mdi-bag-personal-off-outline" title="Tirar item" :disabled="!c.inventory.length" @click="openTake(c)" />
                         <v-list-item prepend-icon="mdi-skull" title="Criatura" @click="openForm(c, 'summon')" />
                         <v-list-item prepend-icon="mdi-pencil" title="Editar ficha" @click="openForm(c, 'sheet')" />
                       </v-list>
@@ -517,6 +529,8 @@ async function toggleShop() {
     </template>
 
     <AdjustDialog v-model="adjustOpen" :character="target" :kind="adjustKind" />
+    <TakeItemDialog v-model="takeOpen" :character="target" />
+    <CombatEffect />
     <ConditionDialog v-model="conditionOpen" :target="conditionTarget" />
     <QuickFormDialog
       v-model="formOpen"

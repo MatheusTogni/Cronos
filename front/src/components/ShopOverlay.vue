@@ -1,19 +1,56 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import PotionBottle from '@/components/PotionBottle.vue'
 import { api } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
 import { useNotifyStore } from '@/stores/notify'
 import type { ActionResult } from '@/types/api'
+import { BACKPACK_SLOTS, hasRoomFor } from '@/utils/backpack'
 import { SHOP_GROUPS, SHOP_ITEMS, type ShopItem } from '@/utils/shop'
 
 /**
  * A loja do mercador na tela do jogador: as portas se abrem e aparece o
- * estande, com os itens em prateleiras. Abre quando o mestre abre a loja e o
- * jogador pode sair a qualquer momento (a loja continua aberta para os outros).
- * No modo leve e com movimento reduzido não há portas: vai direto ao estande.
+ * estande, com os itens em prateleiras. Quem abre e fecha é só o mestre: o
+ * jogador não sai por conta própria. Quando o mestre fecha, as portas se
+ * fecham de volta (o inverso da abertura) e, enquanto isso, nada no estande
+ * responde (nem comprar, nem rolar).
+ * No modo leve e com movimento reduzido não há portas: o estande só some.
  */
-const open = defineModel<boolean>({ required: true })
+const props = defineProps<{ open: boolean }>()
+
+/** Tempo das portas se fechando (a animação) mais um respiro com elas fechadas. */
+const CLOSE_MS = 1700
+
+/** O estande está na tela: da abertura até as portas terminarem de fechar. */
+const shown = ref(props.open)
+/** As portas estão se fechando: o estande fica travado. */
+const closing = ref(false)
+const doors = ref<HTMLElement | null>(null)
+let closeTimer: ReturnType<typeof setTimeout> | undefined
+
+watch(
+  () => props.open,
+  (isOpen) => {
+    clearTimeout(closeTimer)
+    if (isOpen) {
+      closing.value = false
+      shown.value = true
+      return
+    }
+    if (!shown.value) return
+    // sem portas (modo leve, movimento reduzido) o estande só some, sem espera
+    const hasDoors = !!doors.value && getComputedStyle(doors.value).display !== 'none'
+    closing.value = hasDoors
+    closeTimer = setTimeout(
+      () => {
+        shown.value = false
+        closing.value = false
+      },
+      hasDoors ? CLOSE_MS : 0,
+    )
+  },
+)
+onBeforeUnmount(() => clearTimeout(closeTimer))
 
 const campaign = useCampaignStore()
 const notify = useNotifyStore()
@@ -29,10 +66,14 @@ const shelves = computed(() =>
 const owned = (code: string) =>
   me.value?.inventory.filter((i) => i.code === code).reduce((sum, i) => sum + i.qty, 0) ?? 0
 
+const inventory = computed(() => me.value?.inventory ?? [])
+/** Mochila cheia (9 itens diferentes): só dá para comprar o que já tem pilha. */
+const noRoom = (item: ShopItem) => !hasRoomFor(inventory.value, item)
+
 const buying = ref<string | null>(null)
 async function buy(item: ShopItem) {
   const c = me.value
-  if (!c || buying.value) return
+  if (!c || buying.value || closing.value || noRoom(item)) return
   buying.value = item.code
   const result = { log: null as ActionResult['log'] }
   const ok = await campaign.act(async () => {
@@ -48,7 +89,7 @@ async function buy(item: ShopItem) {
 <template>
   <Teleport to="body">
     <Transition name="shop">
-      <div v-if="open" class="shop" role="dialog" aria-modal="true" aria-label="Loja do mercador">
+      <div v-if="shown" class="shop" :class="{ closing }" role="dialog" aria-modal="true" aria-label="Loja do mercador">
         <!-- o estande, atrás das portas -->
         <div class="scene">
           <header class="awning" aria-hidden="true" />
@@ -59,7 +100,10 @@ async function buy(item: ShopItem) {
               <v-icon icon="mdi-circle-multiple" size="small" />
               <strong>{{ gold }}</strong> de ouro
             </span>
-            <v-btn variant="text" size="small" prepend-icon="mdi-door-open" @click="open = false">Sair da loja</v-btn>
+            <span class="purse pack" :class="{ full: inventory.length >= BACKPACK_SLOTS }" title="Itens diferentes na mochila">
+              <v-icon icon="mdi-bag-personal" size="small" />
+              <strong>{{ inventory.length }}/{{ BACKPACK_SLOTS }}</strong>
+            </span>
           </div>
 
           <div class="counter">
@@ -74,6 +118,7 @@ async function buy(item: ShopItem) {
                   <div class="name title-font">{{ item.name }}</div>
                   <div class="desc">{{ item.description }}</div>
                   <div v-if="owned(item.code)" class="have">Você tem {{ owned(item.code) }}</div>
+                  <div v-if="noRoom(item)" class="nospace">Mochila cheia</div>
                   <div class="buy">
                     <span class="price" :class="{ poor: gold < item.price }">
                       <v-icon icon="mdi-circle-multiple" size="x-small" /> {{ item.price }}
@@ -82,7 +127,7 @@ async function buy(item: ShopItem) {
                       size="small"
                       color="secondary"
                       variant="flat"
-                      :disabled="gold < item.price"
+                      :disabled="gold < item.price || closing || noRoom(item)"
                       :loading="buying === item.code"
                       :aria-label="`Comprar ${item.name} por ${item.price} de ouro`"
                       @click="buy(item)"
@@ -96,8 +141,8 @@ async function buy(item: ShopItem) {
           </div>
         </div>
 
-        <!-- as portas: abrem uma vez e somem -->
-        <div class="doors" aria-hidden="true">
+        <!-- as portas: abrem e somem; quando o mestre fecha a loja, voltam e se fecham -->
+        <div ref="doors" class="doors" aria-hidden="true">
           <div class="glow" />
           <div class="door left"><span class="ring" /></div>
           <div class="door right"><span class="ring" /></div>
@@ -172,7 +217,7 @@ async function buy(item: ShopItem) {
 .bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 12px;
   width: min(640px, 100%);
   margin: 14px auto 0;
@@ -275,6 +320,21 @@ async function buy(item: ShopItem) {
 .have {
   font-size: 0.75rem;
   color: rgb(var(--v-theme-success));
+}
+
+.nospace {
+  font-size: 0.75rem;
+  color: rgb(var(--v-theme-error));
+}
+
+/* selo da mochila ao lado do ouro; vermelho quando está cheia */
+.pack strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.pack.full {
+  color: rgb(var(--v-theme-error));
+  border-color: rgb(var(--v-theme-error));
 }
 
 .buy {
@@ -406,6 +466,81 @@ async function buy(item: ShopItem) {
   }
   to {
     filter: brightness(1);
+  }
+}
+
+/* ───────────── fechando: o inverso da abertura ─────────────
+   Só existe com portas (closing só liga quando elas aparecem), então o modo
+   leve e o movimento reduzido não passam por aqui. */
+
+/* travado: nada no estande responde enquanto as portas se fecham */
+.shop.closing {
+  touch-action: none;
+}
+
+.shop.closing .scene {
+  pointer-events: none;
+  animation: scene-dim 1.3s ease-in forwards;
+}
+
+.shop.closing .counter {
+  overflow: hidden;
+}
+
+/* as portas voltam do ponto em que ficaram abertas e se fecham */
+.shop.closing .doors {
+  animation: none;
+}
+
+.shop.closing .door.left {
+  animation: door-left-close 1.3s cubic-bezier(0.75, 0, 0.45, 0.95) forwards;
+}
+
+.shop.closing .door.right {
+  animation: door-right-close 1.3s cubic-bezier(0.75, 0, 0.45, 0.95) forwards;
+}
+
+.shop.closing .glow {
+  animation: glow-close 1.3s ease-in-out both;
+}
+
+@keyframes door-left-close {
+  from {
+    transform: rotateY(-104deg);
+  }
+  to {
+    transform: rotateY(0deg);
+  }
+}
+
+@keyframes door-right-close {
+  from {
+    transform: rotateY(104deg);
+  }
+  to {
+    transform: rotateY(0deg);
+  }
+}
+
+/* a luz que escapa pela fresta aperta e some quando as portas encostam */
+@keyframes glow-close {
+  0% {
+    opacity: 0;
+  }
+  65% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes scene-dim {
+  from {
+    filter: brightness(1);
+  }
+  to {
+    filter: brightness(0.25);
   }
 }
 

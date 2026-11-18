@@ -2,7 +2,8 @@
 import { computed, ref } from 'vue'
 import { api } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
-import type { Ability, ActionResult, Character, Crit } from '@/types/api'
+import type { Ability, ActionResult, Character } from '@/types/api'
+import { critLabel } from '@/utils/abilities'
 
 /**
  * O jogador diz na mesa o que vai fazer e confirma a skill aqui: o app só gasta
@@ -16,8 +17,6 @@ const campaign = useCampaignStore()
 const busy = ref(false)
 
 const enoughMana = computed(() => (props.ability?.manaCost ?? 0) <= props.character.mana)
-
-const critLabel = (c: Crit) => (c.min === c.max ? `${c.min}` : c.max === 20 ? `${c.min}+` : `${c.min}–${c.max}`)
 
 async function submit() {
   const a = props.ability

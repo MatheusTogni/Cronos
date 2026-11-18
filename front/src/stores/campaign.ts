@@ -28,6 +28,13 @@ export const useCampaignStore = defineStore('campaign', () => {
   const error = ref('')
   /** Removido do lobby pelo mestre — a tela decide para onde ir. */
   const kicked = ref(false)
+  /**
+   * Jogador: imagem que o mestre mostrou só a alguns. Chega por evento e não
+   * fica guardada no servidor (é só apoio à narração): recarregar a página a limpa.
+   */
+  const privateImage = ref<{ id: string; url: string } | null>(null)
+  /** Mestre: a última imagem que mostrou só a alguns, para avisar e poder ocultar. */
+  const privateShown = ref<{ imageId: string; names: string[] } | null>(null)
 
   const isMaster = computed(() => !!state.value && state.value.master.id === auth.user?.id)
   const myCharacter = computed(
@@ -68,6 +75,14 @@ export const useCampaignStore = defineStore('campaign', () => {
   )
   /** Fora de combate qualquer um oferece; em combate, só quem está na vez. */
   const canOffer = computed(() => !combat.value || isMyTurn.value)
+  /** Por que Dar e Trocar estão desligados agora (vazio = liberado). */
+  const offerBlock = computed(() =>
+    outgoingTransfer.value
+      ? 'Você já tem uma oferta aguardando resposta'
+      : !canOffer.value
+        ? 'Em combate, só na sua vez'
+        : '',
+  )
 
   const characterById = (id: string | null | undefined) =>
     state.value?.characters.find((c) => c.id === id) ?? null
@@ -171,6 +186,9 @@ export const useCampaignStore = defineStore('campaign', () => {
         if (p.id === campaignId.value) applyPatch(p)
       }),
       realtime.on<LogEntry>('log:new', (entry) => pushLog(entry)),
+      realtime.on<{ campaignId: string; image: { id: string; url: string } | null }>('image:shown', (p) => {
+        if (p.campaignId === campaignId.value) privateImage.value = p.image
+      }),
       realtime.on<Transfer>('transfer:new', (t) => onTransfer(t, true)),
       realtime.on<Transfer>('transfer:updated', (t) => onTransfer(t, false)),
       realtime.on<{ id: string }>('log:reverted', ({ id }) => {
@@ -224,6 +242,8 @@ export const useCampaignStore = defineStore('campaign', () => {
     state.value = null
     logs.value = []
     transfers.value = []
+    privateImage.value = null
+    privateShown.value = null
   }
 
   /**
@@ -251,6 +271,8 @@ export const useCampaignStore = defineStore('campaign', () => {
     loading,
     error,
     kicked,
+    privateImage,
+    privateShown,
     isMaster,
     myCharacter,
     mySeat,
@@ -266,6 +288,7 @@ export const useCampaignStore = defineStore('campaign', () => {
     incomingTransfer,
     outgoingTransfer,
     canOffer,
+    offerBlock,
     dropTransfer,
     open,
     close,

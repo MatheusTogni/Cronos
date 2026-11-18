@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import ItemIcon from '@/components/ItemIcon.vue'
 import { api } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
 import { useClassesStore } from '@/stores/classes'
@@ -11,6 +12,9 @@ import type { TransferMode } from '@/types/ui'
  * Quem oferece: escolhe o que dar (um item ou ouro), para quem, e na troca
  * qual item do inventário da outra pessoa quer em troca. A oferta vira um
  * popup de aceitar ou recusar na tela de quem recebe.
+ *
+ * Aberto a partir de um item da mochila, o item já vem escolhido; aberto pelo
+ * atalho da ficha, a pessoa escolhe aqui se dá um item, troca ou dá ouro.
  */
 const props = defineProps<{ character: Character; item: InventoryItem | null; mode: TransferMode }>()
 const open = defineModel<boolean>({ required: true })
@@ -19,7 +23,8 @@ const campaign = useCampaignStore()
 const classes = useClassesStore()
 const notify = useNotifyStore()
 
-const kind = ref<'GIFT' | 'TRADE'>('GIFT')
+const kind = ref<'GIFT' | 'TRADE' | 'GOLD'>('GIFT')
+const pickedId = ref<string | null>(null)
 const qty = ref<number | string>(1)
 const gold = ref<number | string>(1)
 const toId = ref<string | null>(null)
@@ -28,29 +33,43 @@ const askQty = ref<number | string>(1)
 const error = ref('')
 const busy = ref(false)
 
-const isGold = computed(() => props.mode === 'gold')
-const isTrade = computed(() => !isGold.value && kind.value === 'TRADE')
+const isGold = computed(() => kind.value === 'GOLD')
+const isTrade = computed(() => kind.value === 'TRADE')
+/** O item oferecido, sempre lido da mochila de agora (a quantidade pode ter mudado). */
+const offered = computed(() => {
+  const id = props.item?.id ?? pickedId.value
+  return props.character.inventory.find((i) => i.id === id) ?? null
+})
+const pickItems = computed(() =>
+  props.character.inventory.map((i) => ({ title: i.qty > 1 ? `${i.name} ×${i.qty}` : i.name, value: i.id })),
+)
 const others = computed(() => campaign.state?.characters.filter((c) => c.id !== props.character.id) ?? [])
 const recipient = computed(() => others.value.find((c) => c.id === toId.value) ?? null)
 const askItem = computed(() => recipient.value?.inventory.find((i) => i.id === askItemId.value) ?? null)
 
 const title = computed(() => {
   if (isGold.value) return 'Dar ouro'
-  return `${kind.value === 'TRADE' ? 'Trocar' : 'Dar'} ${props.item?.name ?? ''}`
+  const verb = isTrade.value ? 'Trocar' : 'Dar'
+  return offered.value ? `${verb} ${offered.value.name}` : `${verb} um item`
 })
-const icon = computed(() =>
-  isGold.value ? 'mdi-circle-multiple' : kind.value === 'TRADE' ? 'mdi-swap-horizontal' : 'mdi-gift-outline',
-)
+const icon = computed(() => (isGold.value ? 'mdi-circle-multiple' : isTrade.value ? 'mdi-swap-horizontal' : 'mdi-gift-outline'))
 
 watch(open, (isOpen) => {
   if (!isOpen) return
-  kind.value = props.mode === 'trade' ? 'TRADE' : 'GIFT'
+  kind.value = props.mode === 'trade' ? 'TRADE' : props.mode === 'gold' ? 'GOLD' : 'GIFT'
+  // sem item escolhido de antemão: com um só item na mochila, já vem nele
+  const inv = props.character.inventory
+  pickedId.value = !props.item && inv.length === 1 ? (inv[0]?.id ?? null) : null
   qty.value = 1
   gold.value = 1
   toId.value = others.value.length === 1 ? (others.value[0]?.id ?? null) : null
   askItemId.value = null
   askQty.value = 1
   error.value = ''
+})
+// escolher outro item recomeça a quantidade
+watch(pickedId, () => {
+  qty.value = 1
 })
 // trocar de pessoa ou de item pedido recomeça a quantidade pedida
 watch(toId, () => {
@@ -71,7 +90,7 @@ async function send() {
     error.value = 'Escolha para quem'
     return
   }
-  const body: Record<string, unknown> = { toCharacterId: to.id, kind: isGold.value ? 'GIFT' : kind.value }
+  const body: Record<string, unknown> = { toCharacterId: to.id, kind: isTrade.value ? 'TRADE' : 'GIFT' }
 
   if (isGold.value) {
     const g = toInt(gold.value)
@@ -81,8 +100,11 @@ async function send() {
     }
     body.gold = g
   } else {
-    const item = props.item
-    if (!item) return
+    const item = offered.value
+    if (!item) {
+      error.value = 'Escolha o item'
+      return
+    }
     const q = toInt(qty.value)
     if (q < 1 || q > item.qty) {
       error.value = `Quantidade de 1 a ${item.qty}`
@@ -128,17 +150,10 @@ async function send() {
       </v-card-title>
 
       <v-card-text class="px-6">
-        <v-btn-toggle
-          v-if="!isGold"
-          v-model="kind"
-          mandatory
-          divided
-          variant="outlined"
-          color="secondary"
-          class="mb-4"
-        >
+        <v-btn-toggle v-model="kind" mandatory divided variant="outlined" color="secondary" class="mb-4">
           <v-btn value="GIFT" prepend-icon="mdi-gift-outline">Dar</v-btn>
           <v-btn value="TRADE" prepend-icon="mdi-swap-horizontal">Trocar</v-btn>
+          <v-btn v-if="!item" value="GOLD" prepend-icon="mdi-circle-multiple" :disabled="character.gold < 1">Ouro</v-btn>
         </v-btn-toggle>
 
         <div class="section-label">Você oferece</div>
@@ -152,24 +167,37 @@ async function send() {
           :hint="`Você tem ${character.gold}`"
           persistent-hint
         />
-        <div v-else-if="item" class="offer">
-          <v-icon icon="mdi-bag-personal" />
-          <div class="offer-main">
-            <strong>{{ item.name }}</strong>
-            <div class="muted">Você tem {{ item.qty }}</div>
+        <template v-else>
+          <template v-if="!item">
+            <v-select
+              v-if="character.inventory.length"
+              v-model="pickedId"
+              :items="pickItems"
+              label="Qual item"
+              hide-details
+              class="mb-2"
+            />
+            <div v-else class="muted">Sua mochila está vazia.</div>
+          </template>
+          <div v-if="offered" class="offer">
+            <ItemIcon :item="offered" :size="28" />
+            <div class="offer-main">
+              <strong>{{ offered.name }}</strong>
+              <div class="muted">Você tem {{ offered.qty }}</div>
+            </div>
+            <v-text-field
+              v-if="offered.qty > 1"
+              v-model.number="qty"
+              type="number"
+              min="1"
+              :max="offered.qty"
+              label="Quantas"
+              density="compact"
+              hide-details
+              class="qty"
+            />
           </div>
-          <v-text-field
-            v-if="item.qty > 1"
-            v-model.number="qty"
-            type="number"
-            min="1"
-            :max="item.qty"
-            label="Quantas"
-            density="compact"
-            hide-details
-            class="qty"
-          />
-        </div>
+        </template>
 
         <div class="section-label mt-4">Para quem</div>
         <v-list v-if="others.length" class="people" density="compact" bg-color="transparent">
@@ -207,6 +235,9 @@ async function send() {
                 rounded
                 @click="askItemId = it.id"
               >
+                <template #prepend>
+                  <ItemIcon :item="it" :size="24" class="mr-3" />
+                </template>
                 <v-list-item-title>{{ it.name }}</v-list-item-title>
                 <template #append>
                   <span class="muted">×{{ it.qty }}</span>
@@ -236,7 +267,15 @@ async function send() {
       <v-card-actions class="px-6 pb-5">
         <v-spacer />
         <v-btn variant="text" @click="open = false">Cancelar</v-btn>
-        <v-btn color="primary" variant="flat" :loading="busy" :disabled="!recipient" @click="send">Enviar oferta</v-btn>
+        <v-btn
+          color="primary"
+          variant="flat"
+          :loading="busy"
+          :disabled="!recipient || (!isGold && !offered)"
+          @click="send"
+        >
+          Enviar oferta
+        </v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>

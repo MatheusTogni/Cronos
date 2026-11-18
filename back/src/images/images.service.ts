@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CampaignStatus } from '@prisma/client';
 import { unlink } from 'node:fs/promises';
 import { parse } from 'node:path';
@@ -84,7 +88,17 @@ export class ImagesService {
     await this.realtime.broadcastState(image.campaignId);
   }
 
-  async show(campaignId: string, imageId: string, user: AuthUser) {
+  /**
+   * Mostra a imagem. `userIds` vazio ou ausente = todos os jogadores (fica no
+   * estado da campanha, como sempre). Com ids, só esses jogadores a recebem,
+   * na hora: não fica guardada em lugar nenhum (é só apoio à narração).
+   */
+  async show(
+    campaignId: string,
+    imageId: string,
+    userIds: string[] | undefined,
+    user: AuthUser,
+  ) {
     const campaign = await loadCampaign(this.prisma, campaignId);
     assertCampaignMaster(campaign, user);
     assertStatus(
@@ -98,11 +112,36 @@ export class ImagesService {
     if (!image || image.campaignId !== campaignId) {
       throw new NotFoundException('Imagem não encontrada');
     }
+    const targets = [...new Set(userIds ?? [])];
+    if (targets.length) {
+      const seated = await this.prisma.campaignPlayer.count({
+        where: { campaignId, userId: { in: targets } },
+      });
+      if (seated !== targets.length) {
+        throw new BadRequestException('Escolha só jogadores desta campanha');
+      }
+    }
+    if (targets.length) {
+      // só para alguns: a que estava para todos sai da tela e a nova vai só aos escolhidos
+      await this.prisma.campaign.update({
+        where: { id: campaignId },
+        data: { shownImageId: null },
+      });
+      await this.realtime.broadcastState(campaignId);
+      this.realtime.emitPrivateImage(
+        campaignId,
+        { id: image.id, url: uploadUrl(image.filename) },
+        targets,
+      );
+      return;
+    }
     await this.prisma.campaign.update({
       where: { id: campaignId },
       data: { shownImageId: imageId },
     });
     await this.realtime.broadcastState(campaignId);
+    // limpa as que tinham ido só a alguns
+    this.realtime.emitPrivateImage(campaignId, null, []);
   }
 
   async hide(campaignId: string, user: AuthUser) {
@@ -113,6 +152,7 @@ export class ImagesService {
       data: { shownImageId: null },
     });
     await this.realtime.broadcastState(campaignId);
+    this.realtime.emitPrivateImage(campaignId, null, []);
   }
 
   private async load(imageId: string, user: AuthUser) {

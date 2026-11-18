@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { useDisplay } from 'vuetify'
 import { homeFor, useAuthStore } from '@/stores/auth'
 import { useLiteStore } from '@/stores/lite'
 import { useRealtimeStore } from '@/stores/realtime'
@@ -10,6 +11,13 @@ const auth = useAuthStore()
 const realtime = useRealtimeStore()
 const liteMode = useLiteStore()
 const router = useRouter()
+const route = useRoute()
+
+/**
+ * Celular e tablet pequeno: a barra fica numa linha só e as abas de navegação
+ * vão para dentro do menu suspenso. Telas largas mantêm a faixa de abas.
+ */
+const { smAndDown } = useDisplay()
 
 /** Cada papel vê só os próprios menus. */
 const links = computed(() =>
@@ -28,6 +36,13 @@ const links = computed(() =>
       ],
 )
 
+/**
+ * Item do menu aceso pela rota. Campanhas do jogador também acende dentro de
+ * uma aventura aberta (/jogador/campanha/:id), mas não nas outras telas dele.
+ */
+const isCurrent = (to: string) =>
+  to === '/jogador' ? route.path === to || route.path.startsWith('/jogador/campanha') : route.path.startsWith(to)
+
 // tempo real ligado enquanto estiver logado
 onMounted(() => realtime.connect())
 
@@ -39,7 +54,7 @@ function logout() {
 </script>
 
 <template>
-  <v-app-bar flat class="app-bar" density="comfortable">
+  <v-app-bar flat class="app-bar" :density="smAndDown ? 'compact' : 'comfortable'">
     <v-app-bar-title>
       <router-link :to="auth.user ? homeFor(auth.user.role) : '/'" class="brand">
         <img src="/pwa-64x64.png" alt="" class="brand-icon" />
@@ -50,7 +65,8 @@ function logout() {
     <template #append>
       <v-menu location="bottom end">
         <template #activator="{ props }">
-          <v-btn v-bind="props" variant="text" class="user-btn">
+          <v-btn v-if="smAndDown" v-bind="props" icon="mdi-menu" variant="text" aria-label="Menu" />
+          <v-btn v-else v-bind="props" variant="text" class="user-btn">
             <span class="sigil" :class="{ master: auth.isMaster }">
               <v-icon :icon="auth.isMaster ? 'mdi-crown' : 'mdi-sword'" size="16" />
             </span>
@@ -62,8 +78,27 @@ function logout() {
           <v-list-item
             :title="auth.user?.displayName"
             :subtitle="`${auth.user?.username} · ${auth.user ? ROLE_LABEL[auth.user.role] : ''}`"
-          />
+          >
+            <template v-if="smAndDown" #prepend>
+              <span class="sigil" :class="{ master: auth.isMaster }">
+                <v-icon :icon="auth.isMaster ? 'mdi-crown' : 'mdi-sword'" size="16" />
+              </span>
+            </template>
+          </v-list-item>
           <v-divider />
+          <!-- no celular, a navegação mora aqui em vez de uma segunda faixa de abas -->
+          <template v-if="smAndDown">
+            <v-list-item
+              v-for="link in links"
+              :key="link.to"
+              :to="link.to"
+              :prepend-icon="link.icon"
+              :title="link.label"
+              :active="isCurrent(link.to)"
+              color="secondary"
+            />
+            <v-divider />
+          </template>
           <v-list-item
             prepend-icon="mdi-feather"
             title="Modo leve"
@@ -88,7 +123,7 @@ function logout() {
       </v-menu>
     </template>
 
-    <template #extension>
+    <template v-if="!smAndDown" #extension>
       <v-tabs color="secondary" slider-color="secondary" show-arrows class="nav-tabs">
         <v-tab
           v-for="link in links"

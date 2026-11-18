@@ -8,7 +8,7 @@ import { nextTick, ref, watch } from 'vue'
  * Abertura: a tela começa tomada de fumaça, que se abre para os lados e
  * revela a imagem no centro; depois a fumaça continua rolando nas laterais.
  */
-const props = defineProps<{ image: { id: string; title: string; url: string } | null }>()
+const props = defineProps<{ image: { id: string; url: string } | null }>()
 
 const open = ref(false)
 const revealed = ref(false)
@@ -120,8 +120,7 @@ const WISPS_RIGHT = wisps(43, small ? 3 : 5)
   <v-dialog v-model="open" fullscreen transition="fade-transition">
     <div v-if="image" class="overlay" :class="{ revealed }" @click="open = false">
       <div class="stage">
-        <img :src="image.url" :alt="image.title" class="overlay-img" />
-        <div class="overlay-title title-font">{{ image.title }}</div>
+        <img :src="image.url" alt="Imagem do mestre" class="overlay-img" />
       </div>
 
       <!-- bancos de fumaça: cobrem tudo e se abrem para os lados -->
@@ -200,27 +199,9 @@ const WISPS_RIGHT = wisps(43, small ? 3 : 5)
     transform 2.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.4s;
 }
 
-.overlay-title {
-  margin-top: 12px;
-  color: var(--gold);
-  font-size: 1.1rem;
-  text-align: center;
-  text-shadow: 0 2px 8px #000;
-  opacity: 0;
-  transform: translateY(8px);
-  transition:
-    opacity 0.8s ease 1.8s,
-    transform 0.8s ease 1.8s;
-}
-
 .revealed .overlay-img {
   opacity: 1;
   filter: none;
-  transform: none;
-}
-
-.revealed .overlay-title {
-  opacity: 1;
   transform: none;
 }
 
@@ -371,8 +352,7 @@ const WISPS_RIGHT = wisps(43, small ? 3 : 5)
   }
 
   .smoke,
-  .overlay-img,
-  .overlay-title {
+  .overlay-img {
     transition-duration: 0.01s;
     transition-delay: 0s;
   }

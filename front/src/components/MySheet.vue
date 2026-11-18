@@ -1,27 +1,39 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
+import AbilityTile from '@/components/AbilityTile.vue'
+import BackpackDialog from '@/components/BackpackDialog.vue'
 import ConditionChip from '@/components/ConditionChip.vue'
+import NotesDialog from '@/components/NotesDialog.vue'
 import StatBar from '@/components/StatBar.vue'
 import TransferDialog from '@/components/TransferDialog.vue'
 import UseAbilityDialog from '@/components/UseAbilityDialog.vue'
 import { api } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
-import { useConfirmStore } from '@/stores/confirm'
 import { useNotifyStore } from '@/stores/notify'
 import type { Ability, ActionResult, Character, CharacterClass, InventoryItem } from '@/types/api'
 import type { TransferMode } from '@/types/ui'
+import { BACKPACK_SLOTS } from '@/utils/backpack'
 import { frenzyActive } from '@/utils/classHooks'
-import { shopItem } from '@/utils/shop'
 import { transferSummary } from '@/utils/transfer'
 
-/** Ficha do próprio jogador durante a aventura. */
+/**
+ * Ficha do próprio jogador durante a aventura. Enxuta para o celular: o que se
+ * olha o tempo todo fica na página (vida, mana, habilidades) e o resto abre
+ * por atalhos com ícone (mochila, doar/trocar, anotações).
+ */
 const props = defineProps<{ character: Character; cls: CharacterClass }>()
 
 const campaign = useCampaignStore()
-const confirm = useConfirmStore()
 const notify = useNotifyStore()
 
-const skills = computed(() => props.cls.abilities.filter((a) => a.kind === 'SKILL'))
+/** As habilidades na ordem em que a classe as libera (a que abre primeiro vem primeiro). */
+const skills = computed(() =>
+  props.cls.abilities
+    .filter((a) => a.kind === 'SKILL')
+    .sort((a, b) => a.unlockLevel - b.unlockLevel || a.sortOrder - b.sortOrder),
+)
+/** Sem mana ou fora da vez: não dá para usar agora (a trancada tem o próprio visual). */
+const unusable = (a: Ability) => !isLocked(a) && (a.manaCost > props.character.mana || !campaign.canAct)
 /** A habilidade só abre quando o personagem chega ao nível dela. */
 const isLocked = (a: Ability) => a.unlockLevel > props.character.level
 
@@ -41,33 +53,10 @@ const frenzy = computed(() => frenzyActive(props.character))
 
 // Invocações e condições são controladas pelo mestre: aqui só se vê.
 
-// ── usar item do inventário ──
-async function useItem(item: InventoryItem) {
-  const product = shopItem(item.code)
-  if (!product) return
-  const c = props.character
-  // item de cura com tudo o que ele recupera já cheio: pede confirmação antes de gastar
-  const hpFull = !product.hp || c.hp >= c.hpMax
-  const manaFull = !product.mana || c.mana >= c.manaMax
-  if ((product.hp || product.mana) && hpFull && manaFull) {
-    const what = product.hp && product.mana ? 'Sua vida e sua mana já estão cheias' : product.hp ? `Sua vida já está cheia (${c.hp}/${c.hpMax})` : `Sua mana já está cheia (${c.mana}/${c.manaMax})`
-    const ok = await confirm.ask({
-      title: `Usar ${item.name}?`,
-      text: `${what}. O item será gasto sem efeito.`,
-      confirmLabel: 'Usar mesmo assim',
-      icon: 'mdi-flask-round-bottom',
-      color: 'warning',
-    })
-    if (!ok) return
-  }
-  const result = { log: null as ActionResult['log'] }
-  const ok = await campaign.act(async () => {
-    const res = await api.post<ActionResult>(`/items/${item.id}/use`)
-    result.log = res.data.log
-    return res
-  })
-  if (ok && result.log) notify.success(result.log.message)
-}
+// ── mochila e anotações: abrem em diálogos ──
+const backpackOpen = ref(false)
+const notesOpen = ref(false)
+const backpackFull = computed(() => props.character.inventory.length >= BACKPACK_SLOTS)
 
 // ── doar e trocar ──
 const transferOpen = ref(false)
@@ -78,14 +67,14 @@ function openTransfer(mode: TransferMode, item: InventoryItem | null = null) {
   transferItem.value = item
   transferOpen.value = true
 }
-/** Por que Dar/Trocar/Dar ouro estão desligados agora (vazio = liberado). */
-const offerBlock = computed(() =>
-  campaign.outgoingTransfer
-    ? 'Você já tem uma oferta aguardando resposta'
-    : !campaign.canOffer
-      ? 'Em combate, só na sua vez'
-      : '',
-)
+/** Atalho Doar / Trocar. Se não dá agora, o aviso diz por quê (no celular não existe "passar o mouse"). */
+function openOffer() {
+  if (campaign.offerBlock) {
+    notify.info(campaign.offerBlock)
+    return
+  }
+  openTransfer('give')
+}
 const cancelling = ref(false)
 async function cancelOffer() {
   const offer = campaign.outgoingTransfer
@@ -95,60 +84,53 @@ async function cancelOffer() {
   cancelling.value = false
   if (ok) campaign.dropTransfer(offer.id)
 }
-
-// ── anotações ──
-const notes = ref(props.character.notes)
-const notesDirty = computed(() => notes.value !== props.character.notes)
-watch(
-  () => props.character.notes,
-  (v) => {
-    if (!notesDirty.value) notes.value = v
-  },
-)
-const savingNotes = ref(false)
-async function saveNotes() {
-  savingNotes.value = true
-  const ok = await campaign.act(() =>
-    api.patch<ActionResult>(`/characters/${props.character.id}`, { notes: notes.value }),
-  )
-  savingNotes.value = false
-  if (ok) notify.success('Anotações salvas')
-}
 </script>
 
 <template>
   <div class="sheet" :class="{ frenzy }" :style="{ '--accent': cls.color }">
-    <!-- cabeçalho -->
+    <!-- cabeçalho: retrato, nome e ouro -->
     <div class="hero">
-      <v-avatar size="64" rounded="lg">
+      <v-avatar size="56" rounded="lg">
         <v-img :src="cls.artFile" cover position="top" :alt="cls.name" />
       </v-avatar>
       <div class="hero-text">
         <div class="title-font hero-name">{{ character.name }}</div>
-        <div class="hero-sub">
-          {{ cls.name }} · nível {{ character.level }} · {{ character.xp }} XP
-        </div>
+        <div class="hero-sub">{{ cls.name }} · nível {{ character.level }} · {{ character.xp }} XP</div>
+      </div>
+      <div class="purse" role="status" :aria-label="`${character.gold} moedas de ouro`" :title="`${character.gold} moedas de ouro`">
+        <v-icon icon="mdi-circle-multiple" color="secondary" size="small" />
+        <span class="purse-num">{{ character.gold }}</span>
       </div>
     </div>
 
     <div class="bars">
-      <StatBar label="Vida" icon="mdi-heart" :value="character.hp" :max="character.hpMax" color="error" size="lg" />
-      <StatBar label="Mana" icon="mdi-water" :value="character.mana" :max="character.manaMax" color="info" size="lg" />
+      <StatBar label="Vida" icon="mdi-heart" :value="character.hp" :max="character.hpMax" color="error" />
+      <StatBar label="Mana" icon="mdi-water" :value="character.mana" :max="character.manaMax" color="info" />
     </div>
-    <div class="purse">
-      <v-icon icon="mdi-circle-multiple" color="secondary" />
-      <span class="purse-num">{{ character.gold }}</span>
-      <span class="purse-lbl">{{ character.gold === 1 ? 'moeda de ouro' : 'moedas de ouro' }}</span>
-      <v-btn
-        size="x-small"
-        variant="tonal"
-        prepend-icon="mdi-gift-outline"
-        :disabled="character.gold < 1 || !!offerBlock"
-        :title="offerBlock || 'Dar ouro a outro jogador'"
-        @click="openTransfer('gold')"
+
+    <!-- atalhos: cada um abre o que antes ocupava a página inteira -->
+    <div class="actions" role="group" aria-label="Atalhos da ficha">
+      <button type="button" class="action" @click="backpackOpen = true">
+        <span class="action-icon">
+          <v-icon icon="mdi-bag-personal" size="28" />
+          <span class="action-badge" :class="{ full: backpackFull }">{{ character.inventory.length }}/{{ BACKPACK_SLOTS }}</span>
+        </span>
+        <span class="action-label">Mochila</span>
+      </button>
+      <button
+        type="button"
+        class="action"
+        :class="{ blocked: !!campaign.offerBlock }"
+        :aria-disabled="!!campaign.offerBlock"
+        @click="openOffer"
       >
-        Dar ouro
-      </v-btn>
+        <span class="action-icon"><v-icon icon="mdi-gift-outline" size="28" /></span>
+        <span class="action-label">Doar / Trocar</span>
+      </button>
+      <button type="button" class="action" @click="notesOpen = true">
+        <span class="action-icon"><v-icon icon="mdi-notebook-outline" size="28" /></span>
+        <span class="action-label">Anotações</span>
+      </button>
     </div>
 
     <v-alert
@@ -173,12 +155,9 @@ async function saveNotes() {
     </v-alert>
 
     <!-- condições -->
-    <section v-if="character.conditions.length" class="block">
-      <h3>Condições</h3>
-      <div class="chips">
-        <ConditionChip v-for="c in character.conditions" :key="c.id" :condition="c" size="default" />
-      </div>
-    </section>
+    <div v-if="character.conditions.length" class="chips conditions" aria-label="Condições">
+      <ConditionChip v-for="c in character.conditions" :key="c.id" :condition="c" size="default" />
+    </div>
 
     <!-- habilidades -->
     <section class="block">
@@ -189,13 +168,32 @@ async function saveNotes() {
       <p v-else-if="!campaign.canAct" class="wait">
         <v-icon icon="mdi-timer-sand" size="small" /> Aguarde a sua vez para usar habilidades.
       </p>
-      <div class="abilities">
+      <!-- em combate: três quadradinhos lado a lado, da que libera primeiro à que libera por último -->
+      <template v-if="campaign.combat">
+        <div class="tiles" role="group" aria-label="Habilidades">
+          <AbilityTile
+            v-for="(a, i) in skills"
+            :key="a.id"
+            :ability="a"
+            :position="i + 1"
+            :locked="isLocked(a)"
+            :unusable="unusable(a)"
+            :style="{ '--i': i }"
+            @use="use(a)"
+          />
+        </div>
+        <p class="tiles-hint">
+          <span class="hint-touch">Segure uma habilidade para ver os detalhes.</span>
+          <span class="hint-hover">Passe o mouse numa habilidade para ver os detalhes.</span>
+        </p>
+      </template>
+      <div v-else class="abilities">
         <button
           v-for="a in skills"
           :key="a.id"
           type="button"
           class="ability"
-          :class="{ locked: isLocked(a), disabled: !isLocked(a) && (a.manaCost > character.mana || !campaign.canAct) }"
+          :class="{ locked: isLocked(a), disabled: unusable(a) }"
           :disabled="isLocked(a)"
           @click="use(a)"
         >
@@ -235,63 +233,9 @@ async function saveNotes() {
       </div>
     </section>
 
-    <!-- inventário: usar o que é da loja, dar ou trocar com outro jogador (o mestre também dá e tira itens) -->
-    <section class="block">
-      <h3>Inventário</h3>
-      <div v-if="!character.inventory.length" class="empty">Mochila vazia.</div>
-      <div v-for="item in character.inventory" :key="item.id" class="row-item item-row">
-        <v-icon icon="mdi-bag-personal-outline" />
-        <div class="row-main">
-          <div>{{ item.name }}</div>
-          <div v-if="item.description" class="row-desc">{{ item.description }}</div>
-        </div>
-        <span class="qty-num" :title="`${item.qty} unidade(s)`">×{{ item.qty }}</span>
-        <div class="item-actions">
-          <v-btn
-            v-if="shopItem(item.code)"
-            size="x-small"
-            color="secondary"
-            variant="tonal"
-            :disabled="!campaign.canAct"
-            :title="campaign.canAct ? `Usar ${item.name}` : 'Só na sua vez, e não caído'"
-            @click="useItem(item)"
-          >
-            Usar
-          </v-btn>
-          <v-btn
-            icon="mdi-gift-outline"
-            size="x-small"
-            variant="text"
-            :disabled="!!offerBlock"
-            :title="offerBlock || `Dar ${item.name} a outro jogador`"
-            :aria-label="`Dar ${item.name}`"
-            @click="openTransfer('give', item)"
-          />
-          <v-btn
-            icon="mdi-swap-horizontal"
-            size="x-small"
-            variant="text"
-            :disabled="!!offerBlock"
-            :title="offerBlock || `Trocar ${item.name} com outro jogador`"
-            :aria-label="`Trocar ${item.name}`"
-            @click="openTransfer('trade', item)"
-          />
-        </div>
-      </div>
-    </section>
-
-    <!-- anotações -->
-    <section class="block">
-      <h3>Anotações</h3>
-      <v-textarea v-model="notes" rows="3" auto-grow placeholder="Pistas, nomes, planos…" hide-details />
-      <div class="notes-actions">
-        <v-btn v-if="notesDirty" color="secondary" variant="tonal" size="small" :loading="savingNotes" @click="saveNotes">
-          Salvar anotações
-        </v-btn>
-      </div>
-    </section>
-
     <UseAbilityDialog v-model="abilityOpen" :character="character" :ability="selectedAbility" @used="onUsed" />
+    <BackpackDialog v-model="backpackOpen" :character="character" @transfer="openTransfer" />
+    <NotesDialog v-model="notesOpen" :character="character" />
     <TransferDialog v-model="transferOpen" :character="character" :item="transferItem" :mode="transferMode" />
   </div>
 </template>
@@ -304,68 +248,138 @@ async function saveNotes() {
 .hero {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin-bottom: 16px;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.hero-text {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .hero-name {
-  font-size: 1.6rem;
+  font-size: 1.45rem;
   font-weight: 700;
   line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .hero-sub {
+  margin-top: 2px;
+  font-size: 0.85rem;
+  line-height: 1.25;
   opacity: 0.7;
 }
 
-.bars {
-  display: grid;
-  gap: 12px;
-}
-
+/* ouro: um selo no canto, em vez de uma linha só para ele */
 .purse {
-  display: flex;
+  flex: 0 0 auto;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 12px;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 99px;
+  border: 1px solid var(--border-strong);
+  background: rgba(0, 0, 0, 0.35);
 }
 
 .purse-num {
   font-family: var(--font-title);
-  font-size: 1.3rem;
+  font-size: 1.1rem;
   font-weight: 700;
   color: var(--gold-bright);
 }
 
-.purse-lbl {
-  flex: 1 1 auto;
-  opacity: 0.7;
+/* vida e mana lado a lado: ocupam metade da altura */
+.bars {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
-.item-row {
-  flex-wrap: wrap;
+/* atalhos com ícone, no estilo de uma barra de ações de jogo */
+.actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
 }
 
-.item-actions {
+.action {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 2px;
+  justify-content: center;
+  gap: 4px;
+  min-height: 64px;
+  padding: 8px 4px;
+  border-radius: 12px;
+  border: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 120ms ease-out;
+}
+
+.action:active {
+  border-color: var(--accent);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .action:hover {
+    border-color: var(--accent);
+  }
+}
+
+/* sem poder agora: fica apagado, e tocar explica o motivo */
+.action.blocked {
+  opacity: 0.45;
+}
+
+.action-icon {
+  position: relative;
+  display: inline-flex;
+  color: var(--accent);
+}
+
+.action-badge {
+  position: absolute;
+  top: -6px;
+  left: 100%;
+  margin-left: -4px;
+  padding: 1px 6px;
+  border-radius: 99px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  color: #1a1008;
+  background: var(--gold);
+}
+
+.action-badge.full {
+  color: #fff;
+  background: rgb(var(--v-theme-error));
+}
+
+.action-label {
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  text-align: center;
 }
 
 .block {
-  margin-top: 22px;
+  margin-top: 18px;
 }
 
 .wait {
   margin: 0 0 8px;
   font-size: 0.9rem;
   opacity: 0.75;
-}
-
-.block-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
 }
 
 h3 {
@@ -383,9 +397,45 @@ h3 {
   gap: 6px;
 }
 
+.conditions {
+  margin-top: 14px;
+}
+
 .abilities {
   display: grid;
   gap: 8px;
+}
+
+/* combate: a barra de atalhos com as 3 habilidades em quadradinhos */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  /* em tela larga os quadradinhos não viram blocos enormes */
+  max-width: 440px;
+  margin-inline: auto;
+}
+
+.tiles-hint {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  text-align: center;
+  opacity: 0.6;
+}
+
+/* no celular se segura o dedo; com mouse, é só passar por cima */
+.hint-hover {
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .hint-touch {
+    display: none;
+  }
+
+  .hint-hover {
+    display: inline;
+  }
 }
 
 .ability {
@@ -393,9 +443,9 @@ h3 {
   align-items: center;
   gap: 12px;
   width: 100%;
-  min-height: 64px;
+  min-height: 58px;
   text-align: left;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-radius: 12px;
   border: 1px solid var(--border-soft);
   background: rgba(255, 255, 255, 0.025);
@@ -483,11 +533,6 @@ h3 {
   margin: 6px 0 0;
 }
 
-.empty {
-  opacity: 0.55;
-  font-style: italic;
-}
-
 .row-item {
   display: flex;
   align-items: center;
@@ -499,30 +544,6 @@ h3 {
 .row-main {
   flex: 1 1 auto;
   min-width: 0;
-}
-
-.row-desc {
-  font-size: 0.85rem;
-  opacity: 0.6;
-}
-
-.qty {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.qty-num {
-  min-width: 24px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-.notes-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 6px;
-  min-height: 28px;
 }
 
 .frenzy-note {
@@ -555,7 +576,8 @@ h3 {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ability {
+  .ability,
+  .action {
     transition: none;
   }
 

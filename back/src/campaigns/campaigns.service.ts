@@ -243,6 +243,7 @@ export class CampaignsService {
     });
 
     await this.realtime.broadcastState(id);
+    this.realtime.emitPrivateImage(id, null, []);
     this.realtime.emitLog(id, log);
     this.realtime.campaignsChanged();
     return this.getState(id, user);
