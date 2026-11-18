@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import PotionBottle from '@/components/PotionBottle.vue'
 import { api } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
+import { useLiteStore } from '@/stores/lite'
 import { useNotifyStore } from '@/stores/notify'
 import type { ActionResult } from '@/types/api'
 import { BACKPACK_SLOTS, hasRoomFor } from '@/utils/backpack'
@@ -15,18 +16,47 @@ import { SHOP_GROUPS, SHOP_ITEMS, type ShopItem } from '@/utils/shop'
  * fecham de volta (o inverso da abertura) e, enquanto isso, nada no estande
  * responde (nem comprar, nem rolar).
  * No modo leve e com movimento reduzido não há portas: o estande só some.
+ *
+ * As portas ficam por cima do estande só enquanto abrem: depois saem da tela de
+ * vez (e nunca recebem toque), para não segurar os cliques nem a rolagem.
  */
 const props = defineProps<{ open: boolean }>()
 
+const lite = useLiteStore()
+
 /** Tempo das portas se fechando (a animação) mais um respiro com elas fechadas. */
 const CLOSE_MS = 1700
+/** Tempo da abertura (atraso, portas abrindo e luz): passado isso as portas saem do DOM. */
+const OPEN_MS = 2500
 
 /** O estande está na tela: da abertura até as portas terminarem de fechar. */
 const shown = ref(props.open)
 /** As portas estão se fechando: o estande fica travado. */
 const closing = ref(false)
-const doors = ref<HTMLElement | null>(null)
+/** Só trava enquanto o mestre fecha: com a loja aberta nada fica travado. */
+const locked = computed(() => closing.value && !props.open)
+/** As portas já abriram e saíram da tela. */
+const doorsGone = ref(false)
 let closeTimer: ReturnType<typeof setTimeout> | undefined
+let openTimer: ReturnType<typeof setTimeout> | undefined
+
+/** Há portas no efeito? Não no modo leve nem com movimento reduzido (o CSS também as esconde). */
+function animated() {
+  if (lite.lite) return false
+  try {
+    return !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  } catch {
+    return true
+  }
+}
+
+/** Começa a abertura: as portas ficam por cima e, ao terminarem, saem do DOM. */
+function armDoors() {
+  clearTimeout(openTimer)
+  doorsGone.value = false
+  openTimer = setTimeout(() => (doorsGone.value = true), OPEN_MS)
+}
+if (props.open) armDoors()
 
 watch(
   () => props.open,
@@ -35,22 +65,22 @@ watch(
     if (isOpen) {
       closing.value = false
       shown.value = true
+      armDoors()
       return
     }
     if (!shown.value) return
     // sem portas (modo leve, movimento reduzido) o estande só some, sem espera
-    const hasDoors = !!doors.value && getComputedStyle(doors.value).display !== 'none'
+    const hasDoors = animated()
+    clearTimeout(openTimer)
     closing.value = hasDoors
-    closeTimer = setTimeout(
-      () => {
-        shown.value = false
-        closing.value = false
-      },
-      hasDoors ? CLOSE_MS : 0,
-    )
+    // closing só desliga na próxima abertura: durante o esmaecer final as portas seguem fechadas
+    closeTimer = setTimeout(() => (shown.value = false), hasDoors ? CLOSE_MS : 0)
   },
 )
-onBeforeUnmount(() => clearTimeout(closeTimer))
+onBeforeUnmount(() => {
+  clearTimeout(closeTimer)
+  clearTimeout(openTimer)
+})
 
 const campaign = useCampaignStore()
 const notify = useNotifyStore()
@@ -73,7 +103,7 @@ const noRoom = (item: ShopItem) => !hasRoomFor(inventory.value, item)
 const buying = ref<string | null>(null)
 async function buy(item: ShopItem) {
   const c = me.value
-  if (!c || buying.value || closing.value || noRoom(item)) return
+  if (!c || buying.value || locked.value || noRoom(item)) return
   buying.value = item.code
   const result = { log: null as ActionResult['log'] }
   const ok = await campaign.act(async () => {
@@ -89,7 +119,7 @@ async function buy(item: ShopItem) {
 <template>
   <Teleport to="body">
     <Transition name="shop">
-      <div v-if="shown" class="shop" :class="{ closing }" role="dialog" aria-modal="true" aria-label="Loja do mercador">
+      <div v-if="shown" class="shop" :class="{ closing: locked }" role="dialog" aria-modal="true" aria-label="Loja do mercador">
         <!-- o estande, atrás das portas -->
         <div class="scene">
           <header class="awning" aria-hidden="true" />
@@ -127,7 +157,7 @@ async function buy(item: ShopItem) {
                       size="small"
                       color="secondary"
                       variant="flat"
-                      :disabled="gold < item.price || closing || noRoom(item)"
+                      :disabled="gold < item.price || locked || noRoom(item)"
                       :loading="buying === item.code"
                       :aria-label="`Comprar ${item.name} por ${item.price} de ouro`"
                       @click="buy(item)"
@@ -142,7 +172,7 @@ async function buy(item: ShopItem) {
         </div>
 
         <!-- as portas: abrem e somem; quando o mestre fecha a loja, voltam e se fecham -->
-        <div ref="doors" class="doors" aria-hidden="true">
+        <div v-if="!doorsGone || locked" class="doors" aria-hidden="true">
           <div class="glow" />
           <div class="door left"><span class="ring" /></div>
           <div class="door right"><span class="ring" /></div>
@@ -173,7 +203,9 @@ async function buy(item: ShopItem) {
     radial-gradient(ellipse at 50% 25%, rgba(255, 190, 110, 0.12), transparent 60%),
     repeating-linear-gradient(90deg, #2b1a10 0 46px, #24150d 46px 48px),
     #20130b;
-  animation: scene-light 1.4s ease-out 0.9s both;
+  /* "backwards": começa escuro, mas termina sem filtro nenhum (um filter eterno
+     transforma a prateleira numa camada própria e atrapalha toque e rolagem no celular) */
+  animation: scene-light 1.4s ease-out 0.9s backwards;
 }
 
 .awning {
@@ -239,6 +271,10 @@ async function buy(item: ShopItem) {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  /* a rolagem é só da prateleira: não vaza para a página atrás e o dedo vertical é dela */
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
   width: min(640px, 100%);
   margin: 10px auto 0;
   padding: 4px 14px 40px;
@@ -365,7 +401,9 @@ async function buy(item: ShopItem) {
   inset: 0;
   perspective: 1500px;
   perspective-origin: 50% 50%;
-  /* some de vez no fim da abertura, liberando os cliques no estande */
+  /* enfeite: nunca recebe toque (o clique e a rolagem passam direto para o estande) */
+  pointer-events: none;
+  /* some no fim da abertura; o script também tira as portas do DOM logo depois */
   animation: doors-gone 0.01s linear 2.4s forwards;
 }
 

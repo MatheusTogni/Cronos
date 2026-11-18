@@ -17,6 +17,8 @@ const props = defineProps<{
   locked: boolean
   /** Sem mana ou fora da vez: apagada, mas ainda dá para ler os detalhes. */
   unusable: boolean
+  /** Estilo que mostra a ilustração da skill (recortada da carta da classe); sem ele, só o número. */
+  art?: Record<string, string> | null
 }>()
 const emit = defineEmits<{ use: [] }>()
 
@@ -104,7 +106,7 @@ onBeforeUnmount(() => {
   <button
     type="button"
     class="tile"
-    :class="{ locked, unusable }"
+    :class="{ locked, unusable, 'has-art': !!art }"
     :aria-label="label"
     :aria-disabled="locked"
     @click="onClick"
@@ -117,19 +119,33 @@ onBeforeUnmount(() => {
     @blur="hide('focus')"
     @contextmenu.prevent
   >
+    <span v-if="art" class="art" :style="art" aria-hidden="true" />
     <span class="numeral" aria-hidden="true">{{ numeral }}</span>
 
-    <span v-if="locked" class="core">
-      <v-icon icon="mdi-lock-outline" size="26" />
-      <span class="core-lbl">Nível {{ ability.unlockLevel }}</span>
-    </span>
-    <span v-else class="core">
-      <template v-if="ability.manaCost">
-        <span class="cost">{{ ability.manaCost }}</span>
-        <span class="core-lbl">mana</span>
-      </template>
-      <v-icon v-else icon="mdi-auto-fix" size="30" />
-    </span>
+    <!-- com ilustração: o custo vira um selo no canto e o resto fica por cima da arte -->
+    <template v-if="art">
+      <span v-if="locked" class="lockbox">
+        <v-icon icon="mdi-lock-outline" size="26" />
+        <span class="core-lbl">Nível {{ ability.unlockLevel }}</span>
+      </span>
+      <span v-else class="badge">
+        <template v-if="ability.manaCost"><v-icon icon="mdi-water" size="13" />{{ ability.manaCost }}</template>
+        <v-icon v-else icon="mdi-auto-fix" size="16" />
+      </span>
+    </template>
+    <template v-else>
+      <span v-if="locked" class="core">
+        <v-icon icon="mdi-lock-outline" size="26" />
+        <span class="core-lbl">Nível {{ ability.unlockLevel }}</span>
+      </span>
+      <span v-else class="core">
+        <template v-if="ability.manaCost">
+          <span class="cost">{{ ability.manaCost }}</span>
+          <span class="core-lbl">mana</span>
+        </template>
+        <v-icon v-else icon="mdi-auto-fix" size="30" />
+      </span>
+    </template>
 
     <span class="name">{{ ability.name }}</span>
 
@@ -145,6 +161,7 @@ onBeforeUnmount(() => {
     >
       <div class="peek">
         <div class="peek-head">
+          <span v-if="art" class="peek-art" :style="art" aria-hidden="true" />
           <span class="title-font peek-name">{{ ability.name }}</span>
           <v-chip v-if="ability.manaCost" color="info" size="small" variant="tonal" prepend-icon="mdi-water">
             {{ ability.manaCost }}
@@ -262,6 +279,86 @@ onBeforeUnmount(() => {
   line-clamp: 3;
 }
 
+/* com a ilustração da skill: ela preenche o quadradinho e o texto vai por cima */
+.tile.has-art {
+  justify-content: flex-end;
+  padding: 0 6px 7px;
+  overflow: hidden;
+}
+
+.art {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-repeat: no-repeat;
+}
+
+/* degradê escuro: deixa o nome legível sobre qualquer ilustração */
+.tile.has-art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(8, 5, 12, 0.4) 0%, rgba(8, 5, 12, 0) 30%, rgba(8, 5, 12, 0) 46%, rgba(8, 5, 12, 0.92) 100%);
+  pointer-events: none;
+}
+
+.tile.has-art .numeral {
+  position: absolute;
+  top: 7px;
+  left: 8px;
+  z-index: 2;
+  opacity: 0.85;
+  text-shadow: 0 1px 3px #000;
+}
+
+.tile.has-art .name {
+  position: relative;
+  z-index: 2;
+  color: #f6e7c1;
+  text-shadow:
+    0 1px 4px #000,
+    0 0 2px #000;
+}
+
+/* custo de mana num selo no canto */
+.badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 8px 2px 6px;
+  border-radius: 99px;
+  border: 1px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  background: rgba(8, 5, 14, 0.8);
+  color: color-mix(in srgb, var(--accent) 55%, #fff);
+  font-family: var(--font-title);
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* trancada: ilustração apagada e o nível em que abre no meio */
+.tile.locked .art {
+  filter: grayscale(1) brightness(0.5);
+}
+
+.lockbox {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: #e8dcc4;
+  text-shadow: 0 1px 4px #000;
+}
+
 @keyframes tile-in {
   from {
     opacity: 0;
@@ -284,6 +381,15 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.peek-art {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background-repeat: no-repeat;
 }
 
 .peek-name {

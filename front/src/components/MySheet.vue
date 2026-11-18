@@ -14,6 +14,7 @@ import type { Ability, ActionResult, Character, CharacterClass, InventoryItem } 
 import type { TransferMode } from '@/types/ui'
 import { BACKPACK_SLOTS } from '@/utils/backpack'
 import { frenzyActive } from '@/utils/classHooks'
+import { skillArt } from '@/utils/skillArt'
 import { transferSummary } from '@/utils/transfer'
 
 /**
@@ -178,6 +179,7 @@ async function cancelOffer() {
             :position="i + 1"
             :locked="isLocked(a)"
             :unusable="unusable(a)"
+            :art="skillArt(cls.id, cls.artFile, i)"
             :style="{ '--i': i }"
             @use="use(a)"
           />
