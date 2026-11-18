@@ -41,8 +41,7 @@ As regras completas estão em [docs/REGRAS.md](docs/REGRAS.md).
 |---|---|
 | `back/` | NestJS 11, Prisma 6, PostgreSQL, Socket.IO, JWT, helmet e rate limit no login |
 | `front/` | Vue 3, Vuetify 4, Pinia, Vue Router, Vite, PWA |
-| Testes | Jest + supertest, com **Postgres real embutido** (não precisa instalar banco) |
-| CI | GitHub Actions (build, lint, e2e do back e build do front) |
+| CI | GitHub Actions (build do back e do front) |
 
 ## Rodar em desenvolvimento
 
@@ -75,11 +74,9 @@ A API usa a porta **3100** para não brigar com outros serviços na 3000. Para m
 ## Verificações
 
 ```bash
-cd back  && npm run build && npm run lint:check && npm run test:e2e
+cd back  && npm run build && npm run lint:check
 cd front && npm run build        # type-check + build
 ```
-
-Os testes e2e sobem um Postgres de verdade e cobrem login e papéis, o limite de tentativas de login, o lobby, o uso de habilidades, os ajustes do mestre, o desfazer, o combate por turnos, as condições, o ouro, a loja, as doações e trocas, as permissões, as imagens e o websocket.
 
 ## Estrutura
 

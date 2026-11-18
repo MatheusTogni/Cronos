@@ -17,7 +17,6 @@ import {
   CreateNpcDto,
   UpdateNpcDto,
 } from './dto';
-import { BAND_NARRATION, healthBand } from './health';
 import { clamp, DeltaBuilder, writeLog } from './journal';
 
 type Tx = Prisma.TransactionClient;
@@ -43,7 +42,7 @@ export class NpcsService {
         const npc = await tx.npc.create({
           data: {
             campaignId,
-            // com vários, o jogador distingue os alvos pelo número
+            // com vários, o mestre distingue os alvos pelo número
             name: quantity > 1 ? `${dto.name} ${i}` : dto.name,
             hp: dto.hpMax,
             hpMax: dto.hpMax,
@@ -57,8 +56,7 @@ export class NpcsService {
         campaignId,
         actorUserId: user.id,
         type: LogType.NPC_CREATED,
-        message: `${joinPt(names)} ${entered} em cena`,
-        masterMessage: `${joinPt(names)} ${entered} em cena (vida ${dto.hpMax}/${dto.hpMax}${names.length > 1 ? ' cada' : ''})`,
+        message: `${joinPt(names)} ${entered} em cena (vida ${dto.hpMax}/${dto.hpMax}${names.length > 1 ? ' cada' : ''})`,
         delta,
       });
     });
@@ -92,20 +90,13 @@ export class NpcsService {
       delta.npcHp(npc.id, hp - npc.hp);
       await tx.npc.update({ where: { id: npc.id }, data: { hp } });
 
-      // mestre: com os números. Jogadores: só a faixa de saúde, narrada.
-      let masterMessage =
+      // só o mestre lê (NPC_UPDATED não chega aos jogadores), então vai com os números
+      let message =
         dto.hp < 0
           ? `${npc.name} recebeu ${-dto.hp} de dano`
           : `${npc.name} recuperou ${dto.hp} de vida`;
-      masterMessage += ` (vida ${hp}/${npc.hpMax})`;
-      if (dto.hp < 0 && hp === 0) masterMessage += ' — caiu!';
-      if (dto.reason) masterMessage += ` — ${dto.reason}`;
-
-      const state = BAND_NARRATION[healthBand(hp, npc.hpMax)];
-      let message =
-        dto.hp < 0
-          ? `${npc.name} foi atingido — ${state}`
-          : `${npc.name} se recuperou — ${state}`;
+      message += ` (vida ${hp}/${npc.hpMax})`;
+      if (dto.hp < 0 && hp === 0) message += ' — caiu!';
       if (dto.reason) message += ` — ${dto.reason}`;
 
       return writeLog(tx, {
@@ -113,7 +104,6 @@ export class NpcsService {
         actorUserId: user.id,
         type: LogType.NPC_UPDATED,
         message,
-        masterMessage,
         delta,
       });
     });
@@ -152,7 +142,8 @@ export class NpcsService {
       return writeLog(tx, {
         campaignId: npc.campaignId,
         actorUserId: user.id,
-        type: LogType.CONDITION_ADDED,
+        // NPC_UPDATED (e não CONDITION_ADDED) para o log ficar só com o mestre
+        type: LogType.NPC_UPDATED,
         message: conditionAddedMessage(npc.name, condition),
         delta,
       });

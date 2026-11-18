@@ -1,5 +1,4 @@
-import { Condition, Prisma } from '@prisma/client';
-import { HealthBand, healthBand } from '../game/health';
+import { Condition, LogType, Prisma } from '@prisma/client';
 import { uploadUrl } from '../images/upload-dir';
 
 /** Quem está vendo: o mestre da campanha ou os jogadores. */
@@ -59,18 +58,28 @@ export function logView(log: LogDto, audience: Audience): LogView {
 }
 
 /**
- * Inimigo como o front recebe. Todos veem nome, faixa de saúde e condições;
- * a vida (números) e as anotações só o mestre recebe.
+ * Entradas do log sobre inimigos. São só do mestre: os jogadores não recebem
+ * nem o nome do inimigo, então essas linhas nunca chegam a eles (nem o
+ * "Desfeito: …" delas, que herda o mesmo tipo).
  */
+export const MASTER_ONLY_LOG_TYPES: LogType[] = [
+  LogType.NPC_CREATED,
+  LogType.NPC_UPDATED,
+  LogType.NPC_REMOVED,
+];
+
+export const isMasterOnlyLog = (type: LogType) =>
+  MASTER_ONLY_LOG_TYPES.includes(type);
+
+/** Inimigo como o front do mestre recebe. Os jogadores não recebem inimigo nenhum. */
 export interface NpcView {
   id: string;
   campaignId: string;
   name: string;
-  band: HealthBand;
   conditions: Condition[];
-  hp?: number;
-  hpMax?: number;
-  notes?: string;
+  hp: number;
+  hpMax: number;
+  notes: string;
 }
 
 /** Monta o estado completo da campanha, como o mestre vê. */
@@ -133,7 +142,6 @@ export async function buildCampaignState(
       id: n.id,
       campaignId: n.campaignId,
       name: n.name,
-      band: healthBand(n.hp, n.hpMax),
       conditions: n.conditions,
       hp: n.hp,
       hpMax: n.hpMax,
@@ -151,20 +159,9 @@ export async function buildCampaignState(
 
 export type CampaignState = Awaited<ReturnType<typeof buildCampaignState>>;
 
-/** O mesmo estado sem o que é só do mestre (vida e anotações dos inimigos). */
+/** O mesmo estado sem o que é só do mestre: os inimigos (nome, vida, condições e anotações). */
 export function forPlayers(state: CampaignState): CampaignState {
-  return {
-    ...state,
-    npcs: state.npcs.map(
-      ({ id, campaignId, name, band, conditions }): NpcView => ({
-        id,
-        campaignId,
-        name,
-        band,
-        conditions,
-      }),
-    ),
-  };
+  return { ...state, npcs: [] };
 }
 
 // ───────────── envio por partes ─────────────

@@ -2,19 +2,18 @@
 import { computed } from 'vue'
 import ConditionChip from '@/components/ConditionChip.vue'
 import StatBar from '@/components/StatBar.vue'
-import { HEALTH_BANDS, type Npc } from '@/types/api'
+import type { Npc } from '@/types/api'
 
 /**
- * Inimigo/NPC na mesa. O mestre vê a barra de vida; o jogador só a faixa de
- * saúde (o servidor nem manda o número). Ações (só mestre) vêm pelo slot.
+ * Inimigo/NPC na mesa, só na tela do mestre (o servidor não manda inimigos
+ * aos jogadores). Ações vêm pelo slot.
  */
 const props = withDefaults(defineProps<{ npc: Npc; canRemoveConditions?: boolean }>(), {
   canRemoveConditions: false,
 })
 const emit = defineEmits<{ removeCondition: [id: string] }>()
 
-const down = computed(() => props.npc.band === 'DOWN')
-const band = computed(() => HEALTH_BANDS[props.npc.band])
+const down = computed(() => props.npc.hp <= 0)
 </script>
 
 <template>
@@ -26,7 +25,6 @@ const band = computed(() => HEALTH_BANDS[props.npc.band])
     </div>
 
     <StatBar
-      v-if="npc.hp !== undefined && npc.hpMax !== undefined"
       label="Vida"
       icon="mdi-heart"
       :value="npc.hp"
@@ -35,9 +33,6 @@ const band = computed(() => HEALTH_BANDS[props.npc.band])
       size="sm"
       class="mt-2"
     />
-    <v-chip v-else-if="!down" :color="band.color" size="small" variant="tonal" prepend-icon="mdi-heart-pulse" class="mt-2">
-      {{ band.label }}
-    </v-chip>
 
     <div v-if="npc.notes" class="notes">{{ npc.notes }}</div>
 

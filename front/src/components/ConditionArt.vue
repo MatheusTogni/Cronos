@@ -67,7 +67,10 @@ const inscription = computed(() => `${props.def.name.toUpperCase()} ✦ `.repeat
   position: relative;
   overflow: hidden;
   container-type: size;
-  display: flex;
+  /* !important: a moldura (FrameGallery e ConditionReveal) força `display: block`
+     em quem entra nela e ganha por especificidade; sem isto o selo encosta na
+     esquerda e o nome sobe, em vez de ficar no rodapé */
+  display: flex !important;
   flex-direction: column;
   align-items: center;
   justify-content: space-between;

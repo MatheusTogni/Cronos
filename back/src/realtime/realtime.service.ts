@@ -8,6 +8,7 @@ import {
   CampaignState,
   diffState,
   forPlayers,
+  isMasterOnlyLog,
   LogDto,
   logView,
   snapshotState,
@@ -16,8 +17,8 @@ import {
 
 /**
  * Eventos enviados ao front. Cada campanha tem uma sala para o mestre e outra
- * para os jogadores; o que é só do mestre (vida dos inimigos, texto completo do
- * log) nunca sai na sala dos jogadores.
+ * para os jogadores; o que é só do mestre (os inimigos e o log sobre eles)
+ * nunca sai na sala dos jogadores.
  *  - campaign:state     (campanha inteira, sem o log) → nas salas da campanha
  *  - campaign:patch     (só o que mudou desde o último envio) → idem
  *  - log:new            (uma entrada do log)          → idem
@@ -83,6 +84,8 @@ export class RealtimeService {
 
   emitLog(campaignId: string, entry: LogDto) {
     for (const audience of AUDIENCES) {
+      // o que é sobre inimigos fica só com o mestre
+      if (audience === 'players' && isMasterOnlyLog(entry.type)) continue;
       this.server
         ?.to(rooms.campaign(campaignId, audience))
         .emit('log:new', logView(entry, audience));

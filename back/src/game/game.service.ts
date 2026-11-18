@@ -20,7 +20,7 @@ import {
 } from '../campaigns/access';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
-import { LogDto } from '../realtime/state';
+import { isMasterOnlyLog, LogDto } from '../realtime/state';
 import {
   AdjustDto,
   AdjustSummonDto,
@@ -471,7 +471,8 @@ export class GameService {
         campaignId,
         actorUserId: user.id,
         characterId,
-        type: LogType.CONDITION_REMOVED,
+        // condição de inimigo: NPC_UPDATED, para o log ficar só com o mestre
+        type: condition.npc ? LogType.NPC_UPDATED : LogType.CONDITION_REMOVED,
         message: `${holder} não está mais com ${condition.name}`,
         delta,
       });
@@ -813,7 +814,8 @@ export class GameService {
         campaignId: entry.campaignId,
         actorUserId: user.id,
         characterId: entry.characterId,
-        type: LogType.NOTE,
+        // desfazer algo de inimigo continua só com o mestre
+        type: isMasterOnlyLog(entry.type) ? entry.type : LogType.NOTE,
         message: `Desfeito: ${entry.message}`,
         masterMessage: entry.masterMessage
           ? `Desfeito: ${entry.masterMessage}`

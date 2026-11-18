@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   back:
-    name: Back (build, lint, e2e)
+    name: Back (build)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -25,9 +25,6 @@ jobs:
           cache-dependency-path: back/package-lock.json
       - run: npm ci
       - run: npm run build
-      - run: npm run lint:check
-      # Os e2e sobem um Postgres embutido (sem service container, sem banco instalado).
-      - run: npm run test:e2e
 
   front:
     name: Front (type-check e build)

@@ -17,6 +17,7 @@ import {
   forPlayers,
   logSelect,
   logView,
+  MASTER_ONLY_LOG_TYPES,
   toLogDto,
 } from '../realtime/state';
 import {
@@ -102,7 +103,13 @@ export class CampaignsService {
     const [full, logs] = await Promise.all([
       buildCampaignState(this.prisma, campaignId),
       this.prisma.logEntry.findMany({
-        where: { campaignId },
+        where: {
+          campaignId,
+          // o log sobre inimigos é só do mestre
+          ...(audience === 'players'
+            ? { type: { notIn: MASTER_ONLY_LOG_TYPES } }
+            : {}),
+        },
         orderBy: { createdAt: 'desc' },
         take: LOG_LIMIT,
         select: logSelect,

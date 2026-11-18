@@ -1,7 +1,7 @@
 /**
  * URL do Prisma montada a partir de DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD e DB_DATABASE
  * (o mesmo formato de .env dos outros projetos da VPS). Se DATABASE_URL existir, ela vence
- * (os testes e2e usam).
+ * (serve para apontar para outro banco sem mexer nos DB_*).
  */
 export function databaseUrl(): string {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;

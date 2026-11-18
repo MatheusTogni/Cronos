@@ -7,7 +7,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { ensureUploadDir } from './images/upload-dir';
 
-/** Configuração compartilhada entre o servidor e os testes e2e. */
+/** Configuração do app Nest: proxy, helmet, prefixo da API e validação. */
 export function configureApp(app: INestApplication) {
   const express = app as NestExpressApplication;
 

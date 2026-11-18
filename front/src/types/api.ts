@@ -146,30 +146,18 @@ export interface Summon {
   conditions: Condition[]
 }
 
-/** Faixa de saúde do inimigo: é o que o jogador vê no lugar da vida. */
-export type HealthBand = 'INTACT' | 'WOUNDED' | 'BADLY_WOUNDED' | 'NEAR_DEATH' | 'DOWN'
-
-export const HEALTH_BANDS: Record<HealthBand, { label: string; color: string }> = {
-  INTACT: { label: 'Intacto', color: 'success' },
-  WOUNDED: { label: 'Ferido', color: 'warning' },
-  BADLY_WOUNDED: { label: 'Muito ferido', color: 'orange-darken-2' },
-  NEAR_DEATH: { label: 'Por um fio', color: 'error' },
-  DOWN: { label: 'Caído', color: 'error' },
-}
-
 /**
  * Inimigo/NPC controlado pelo mestre (age no turno do mestre). Só o mestre
- * recebe vida e anotações; o jogador recebe a faixa de saúde e as condições.
+ * recebe os inimigos; o jogador não recebe nenhum (nem o nome).
  */
 export interface Npc {
   id: string
   campaignId: string
   name: string
-  band: HealthBand
   conditions: Condition[]
-  hp?: number
-  hpMax?: number
-  notes?: string
+  hp: number
+  hpMax: number
+  notes: string
 }
 
 export interface InventoryItem {

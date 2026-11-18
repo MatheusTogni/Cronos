@@ -8,7 +8,6 @@ import ImageOverlay from '@/components/ImageOverlay.vue'
 import LevelUpEffect from '@/components/LevelUpEffect.vue'
 import LogFeed from '@/components/LogFeed.vue'
 import MySheet from '@/components/MySheet.vue'
-import NpcCard from '@/components/NpcCard.vue'
 import PlayerLobby from '@/components/PlayerLobby.vue'
 import ShopOverlay from '@/components/ShopOverlay.vue'
 import TransferInbox from '@/components/TransferInbox.vue'
@@ -168,13 +167,6 @@ watch(tab, (t) => {
           </v-window-item>
 
           <v-window-item value="party">
-            <template v-if="state.npcs.length">
-              <div class="side-title">Inimigos</div>
-              <div class="party mb-4">
-                <NpcCard v-for="n in state.npcs" :key="n.id" :npc="n" />
-              </div>
-              <div class="side-title">Party</div>
-            </template>
             <div class="party">
               <CharacterCard
                 v-for="c in others"

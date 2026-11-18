@@ -21,7 +21,7 @@ export const loginThrottlerOptions = (): ThrottlerModuleOptions => ({
   // A tela de login mostra o `message` da resposta.
   errorMessage:
     'Muitas tentativas de login. Aguarde alguns minutos e tente de novo.',
-  // Lido a cada requisição. Os testes e2e fazem dezenas de logins do mesmo IP,
-  // então o global-setup liga isto; o teste do próprio limite desliga.
+  // Lido a cada requisição: THROTTLE_DISABLED=1 desliga o limite (ex.: para
+  // fazer muitos logins do mesmo IP numa carga de teste).
   skipIf: () => process.env.THROTTLE_DISABLED === '1',
 });
