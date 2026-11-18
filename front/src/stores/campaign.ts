@@ -60,6 +60,8 @@ export const useCampaignStore = defineStore('campaign', () => {
   const isMyTurn = computed(
     () => !!combat.value && !!myCharacter.value && currentTurnCharacter.value?.id === myCharacter.value.id,
   )
+  /** Na minha vez, já usei a habilidade do turno: é uma por turno (atacar é narrativo, o app não conta). */
+  const skillSpent = computed(() => !isMaster.value && isMyTurn.value && !!combat.value?.skillUsed)
 
   // ── doações e trocas ──
   /** Ofertas abertas em que o meu personagem oferece ou recebe. */
@@ -283,6 +285,7 @@ export const useCampaignStore = defineStore('campaign', () => {
     canAct,
     fallen,
     isMyTurn,
+    skillSpent,
     transfers,
     incomingTransfers,
     incomingTransfer,

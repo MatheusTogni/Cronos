@@ -15,7 +15,7 @@ const props = defineProps<{
   position: number
   /** Ainda não liberada: só mostra em que nível abre. */
   locked: boolean
-  /** Sem mana ou fora da vez: apagada, mas ainda dá para ler os detalhes. */
+  /** Sem mana, fora da vez ou com a habilidade do turno já usada: apagada, mas ainda dá para ler os detalhes. */
   unusable: boolean
   /** Estilo que mostra a ilustração da skill (recortada da carta da classe); sem ele, só o número. */
   art?: Record<string, string> | null

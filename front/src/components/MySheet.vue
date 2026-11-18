@@ -33,8 +33,9 @@ const skills = computed(() =>
     .filter((a) => a.kind === 'SKILL')
     .sort((a, b) => a.unlockLevel - b.unlockLevel || a.sortOrder - b.sortOrder),
 )
-/** Sem mana ou fora da vez: não dá para usar agora (a trancada tem o próprio visual). */
-const unusable = (a: Ability) => !isLocked(a) && (a.manaCost > props.character.mana || !campaign.canAct)
+/** Sem mana, fora da vez ou com a habilidade do turno já usada: não dá para usar agora (a trancada tem o próprio visual). */
+const unusable = (a: Ability) =>
+  !isLocked(a) && (a.manaCost > props.character.mana || !campaign.canAct || campaign.skillSpent)
 /** A habilidade só abre quando o personagem chega ao nível dela. */
 const isLocked = (a: Ability) => a.unlockLevel > props.character.level
 
@@ -168,6 +169,10 @@ async function cancelOffer() {
       </p>
       <p v-else-if="!campaign.canAct" class="wait">
         <v-icon icon="mdi-timer-sand" size="small" /> Aguarde a sua vez para usar habilidades.
+      </p>
+      <p v-else-if="campaign.skillSpent" class="wait">
+        <v-icon icon="mdi-check-circle-outline" size="small" /> Você já usou uma habilidade neste turno: é uma por turno
+        e, se usou, não ataca. Doar e trocar não gastam a ação. Quando terminar, passe a vez.
       </p>
       <!-- em combate: três quadradinhos lado a lado, da que libera primeiro à que libera por último -->
       <template v-if="campaign.combat">

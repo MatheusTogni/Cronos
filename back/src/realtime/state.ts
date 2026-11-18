@@ -1,4 +1,5 @@
 import { Condition, LogType, Prisma } from '@prisma/client';
+import { skillUsedThisTurn } from '../game/action';
 import { uploadUrl } from '../images/upload-dir';
 
 /** Quem está vendo: o mestre da campanha ou os jogadores. */
@@ -109,6 +110,15 @@ export async function buildCampaignState(
     },
   });
 
+  // de quem é a vez (null = turno do mestre ou fora de combate)
+  const currentCharacterId =
+    c.inCombat && c.turnIndex > 0
+      ? (c.turnOrder[c.turnIndex - 1] ?? null)
+      : null;
+  const skillUsed = currentCharacterId
+    ? await skillUsedThisTurn(db, c.id, currentCharacterId)
+    : false;
+
   return {
     id: c.id,
     name: c.name,
@@ -126,8 +136,9 @@ export async function buildCampaignState(
           turnIndex: c.turnIndex,
           order: c.turnOrder,
           /** null = turno do mestre. */
-          currentCharacterId:
-            c.turnIndex > 0 ? (c.turnOrder[c.turnIndex - 1] ?? null) : null,
+          currentCharacterId,
+          /** Quem tem a vez já usou a habilidade deste turno (uma por turno). */
+          skillUsed,
         }
       : null,
     players: c.players.map((p) => ({

@@ -61,6 +61,9 @@ async function submit() {
         <v-alert v-else-if="!campaign.canAct" type="warning" variant="tonal" density="compact" class="mb-3">
           Não é a sua vez: aguarde o seu turno no combate.
         </v-alert>
+        <v-alert v-else-if="campaign.skillSpent" type="warning" variant="tonal" density="compact" class="mb-3">
+          Você já usou uma habilidade neste turno: é uma por turno.
+        </v-alert>
         <v-alert v-if="!enoughMana" type="warning" variant="tonal" density="compact" class="mb-3">
           Mana insuficiente: precisa de {{ ability.manaCost }}, você tem {{ character.mana }}.
         </v-alert>
@@ -71,7 +74,7 @@ async function submit() {
       <v-card-actions class="px-6 pb-5">
         <v-spacer />
         <v-btn variant="text" @click="open = false">Cancelar</v-btn>
-        <v-btn color="primary" variant="flat" :loading="busy" :disabled="!enoughMana || !campaign.canAct" @click="submit">
+        <v-btn color="primary" variant="flat" :loading="busy" :disabled="!enoughMana || !campaign.canAct || campaign.skillSpent" @click="submit">
           Usar
         </v-btn>
       </v-card-actions>

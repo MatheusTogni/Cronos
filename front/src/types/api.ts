@@ -204,6 +204,8 @@ export interface CombatState {
   order: string[]
   /** null = turno do mestre. */
   currentCharacterId: string | null
+  /** Quem tem a vez já usou a habilidade deste turno (uma por turno). */
+  skillUsed: boolean
 }
 
 export interface CampaignState {

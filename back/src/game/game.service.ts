@@ -21,6 +21,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { isMasterOnlyLog, LogDto } from '../realtime/state';
+import { lockAction, skillUsedThisTurn } from './action';
 import { lockBackpack, stackFor } from './backpack';
 import {
   AdjustDto,
@@ -68,12 +69,15 @@ export class GameService {
   /**
    * O jogador toca na skill: o app só gasta a mana e registra no log. Dano,
    * efeitos e condições são do mestre, que resolve tudo pela interface dele.
+   * Em combate vale uma habilidade por turno (ver action.ts); o mestre não tem
+   * esse limite.
    */
   async useAbility(characterId: string, abilityId: string, user: AuthUser) {
     const ctx = await this.characterCtx(characterId, user, { owner: true });
     this.assertTurn(ctx);
 
     return this.run(ctx.campaign.id, async (tx) => {
+      await lockAction(tx, characterId);
       const ch = await tx.character.findUniqueOrThrow({
         where: { id: characterId },
       });
@@ -89,6 +93,15 @@ export class GameService {
       if (ability.unlockLevel > ch.level) {
         throw new BadRequestException(
           `${ability.name} só é liberada no nível ${ability.unlockLevel} e ${ch.name} está no nível ${ch.level}`,
+        );
+      }
+      if (
+        ctx.campaign.inCombat &&
+        !ctx.isMaster &&
+        (await skillUsedThisTurn(tx, ch.campaignId, ch.id))
+      ) {
+        throw new BadRequestException(
+          `${ch.name} já usou uma habilidade neste turno: só uma por turno`,
         );
       }
       if (ch.mana < ability.manaCost) {

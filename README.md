@@ -26,7 +26,7 @@ Prints e GIFs ajudam muito a vitrine. Coloque as imagens em docs/img/ e descomen
 - **Painel do mestre**: dano, cura, mana, XP/nível, condições, itens, criaturas e inimigos em ações rápidas, com **log da mesa e desfazer** para qualquer ação.
 - **Lobby e campanhas**: o mestre abre a campanha, os jogadores entram, escolhem a classe e ficam prontos.
 - **9 classes** com 3 habilidades cada, liberadas por nível (até o 15).
-- **Combate por turnos** com vez travada, vibração no celular de quem joga, efeito de tela ao começar e ao terminar e as habilidades em quadradinhos durante o combate (segure para ver os detalhes).
+- **Combate por turnos** com vez travada, vibração no celular de quem joga, efeito de tela ao começar e ao terminar e as habilidades em quadradinhos durante o combate (segure para ver os detalhes), com uma habilidade por turno.
 - **Condições com carta animada** que gira na tela do jogador quando o mestre aplica.
 - **Loja do mercador** (portas que se abrem, ouro, poções) e **doações e trocas** entre jogadores com aceite.
 - **Imagens do mestre** exibidas na tela de todos ou só dos jogadores que ele escolher.
