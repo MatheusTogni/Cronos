@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router'
 import CharacterCard from '@/components/CharacterCard.vue'
 import CombatEffect from '@/components/CombatEffect.vue'
 import ConditionReveal from '@/components/ConditionReveal.vue'
-import DiceRoller from '@/components/DiceRoller.vue'
 import ImageOverlay from '@/components/ImageOverlay.vue'
 import LevelUpEffect from '@/components/LevelUpEffect.vue'
 import LogFeed from '@/components/LogFeed.vue'
@@ -168,10 +167,6 @@ watch(tab, (t) => {
           </v-window-item>
 
           <v-window-item value="log">
-            <v-card class="card-frame pa-4 mb-4" color="surface">
-              <div class="side-title">Rolar dados</div>
-              <DiceRoller :campaign-id="state.id" />
-            </v-card>
             <LogFeed :logs="campaign.logs" max-height="65dvh" />
           </v-window-item>
         </v-window>
@@ -233,14 +228,5 @@ watch(tab, (t) => {
 .empty {
   opacity: 0.6;
   font-style: italic;
-}
-
-.side-title {
-  font-family: var(--font-title);
-  font-size: 0.85rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--gold);
-  margin-bottom: 8px;
 }
 </style>

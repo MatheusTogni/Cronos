@@ -94,7 +94,7 @@ async function endTurn() {
   }
 }
 
-:global(html.lite) .turn-bar.pulse {
+html.lite .turn-bar.pulse {
   animation: none;
 }
 

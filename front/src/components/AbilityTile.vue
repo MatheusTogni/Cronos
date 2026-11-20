@@ -423,7 +423,7 @@ onBeforeUnmount(() => {
   box-shadow: none;
 }
 
-:global(html.lite) .tile {
+html.lite .tile {
   animation: none;
 }
 

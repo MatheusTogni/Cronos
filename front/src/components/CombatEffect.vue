@@ -372,18 +372,18 @@ const reward = computed(() => kind.value === 'end' && !campaign.isMaster)
 }
 
 /* modo leve e movimento reduzido: só o aviso, sem choque nem moedas */
-:global(html.lite) .cfx .flash,
-:global(html.lite) .cfx .slash,
-:global(html.lite) .cfx .ring,
-:global(html.lite) .cfx .coins {
+html.lite .cfx .flash,
+html.lite .cfx .slash,
+html.lite .cfx .ring,
+html.lite .cfx .coins {
   display: none;
 }
 
-:global(html.lite) .cfx .veil,
-:global(html.lite) .cfx .emblem,
-:global(html.lite) .cfx .title,
-:global(html.lite) .cfx .sub,
-:global(html.lite) .cfx .reward {
+html.lite .cfx .veil,
+html.lite .cfx .emblem,
+html.lite .cfx .title,
+html.lite .cfx .sub,
+html.lite .cfx .reward {
   animation: none;
 }
 

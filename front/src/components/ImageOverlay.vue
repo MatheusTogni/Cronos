@@ -1,33 +1,24 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 /**
  * Imagem que o mestre está mostrando. Abre sozinha quando o mestre mostra uma
- * imagem nova; o jogador pode fechar e reabrir pelo botão flutuante.
+ * imagem e só fecha quando o mestre a oculta — o jogador não consegue fechar.
  *
  * Abertura: a tela começa tomada de fumaça, que se abre para os lados e
  * revela a imagem no centro; depois a fumaça continua rolando nas laterais.
  */
 const props = defineProps<{ image: { id: string; url: string } | null }>()
 
-const open = ref(false)
+const open = computed(() => !!props.image)
 const revealed = ref(false)
 
+// a cada imagem nova, a fumaça começa fechada e se abre no quadro seguinte
 watch(
   () => props.image?.id,
-  (id, prev) => {
-    open.value = !!id && id !== prev
-    if (!id) open.value = false
-  },
-  { immediate: true },
-)
-
-// a cada abertura, a fumaça começa fechada e se abre no quadro seguinte
-watch(
-  open,
-  async (isOpen) => {
+  async (id) => {
     revealed.value = false
-    if (!isOpen) return
+    if (!id) return
     await nextTick()
     requestAnimationFrame(() => requestAnimationFrame(() => (revealed.value = true)))
   },
@@ -117,8 +108,8 @@ const WISPS_RIGHT = wisps(43, small ? 3 : 5)
 </script>
 
 <template>
-  <v-dialog v-model="open" fullscreen transition="fade-transition">
-    <div v-if="image" class="overlay" :class="{ revealed }" @click="open = false">
+  <v-dialog :model-value="open" fullscreen persistent no-click-animation transition="fade-transition">
+    <div v-if="image" class="overlay" :class="{ revealed }">
       <div class="stage">
         <img :src="image.url" alt="Imagem do mestre" class="overlay-img" />
       </div>
@@ -138,21 +129,8 @@ const WISPS_RIGHT = wisps(43, small ? 3 : 5)
       <div class="wisps wisps-right" aria-hidden="true">
         <span v-for="(p, i) in WISPS_RIGHT" :key="i" class="wisp" :style="p.style" />
       </div>
-
-      <v-btn icon="mdi-close" class="overlay-close" variant="tonal" aria-label="Fechar imagem" @click.stop="open = false" />
     </div>
   </v-dialog>
-
-  <v-btn
-    v-if="image && !open"
-    class="reopen"
-    color="secondary"
-    prepend-icon="mdi-image"
-    rounded="pill"
-    @click="open = true"
-  >
-    Ver imagem do mestre
-  </v-btn>
 </template>
 
 <style scoped>
@@ -323,21 +301,6 @@ const WISPS_RIGHT = wisps(43, small ? 3 : 5)
     opacity: 0;
     transform: translate(calc(var(--rest) + 30vmin), -6vh) rotate(var(--rot)) scale(1.25);
   }
-}
-
-/* ─────────── controles ─────────── */
-.overlay-close {
-  position: absolute;
-  z-index: 2;
-  top: max(12px, env(safe-area-inset-top));
-  right: 12px;
-}
-
-.reopen {
-  position: fixed;
-  right: 16px;
-  bottom: max(16px, env(safe-area-inset-bottom));
-  z-index: 5;
 }
 
 /* sem animação: a fumaça só se afasta, sem rolar */

@@ -347,9 +347,92 @@ h2.section::after {
     0 24px 60px rgba(0, 0, 0, 0.7) !important;
 }
 
-.v-snackbar__wrapper {
+/* ───────────── Avisos (snackbar) ─────────────
+ * Plaquinha de grimório: fundo preto-violeta, moldura dourada com cantoneiras,
+ * um selo redondo com o ícone e uma faixa de cor conforme o tipo do aviso. */
+.v-snackbar__wrapper.toast {
+  --toast-accent: var(--gold);
+  --toast-glow: rgba(212, 160, 76, 0.22);
+  min-width: min(360px, calc(100vw - 32px));
+  max-width: min(520px, calc(100vw - 32px));
+  border-radius: 10px;
   border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--toast-accent);
+  color: var(--parchment) !important;
+  background-color: var(--ink-2) !important;
+  background-image:
+    var(--corner-tr), var(--corner-br),
+    radial-gradient(ellipse at 0% 50%, var(--toast-glow), transparent 60%),
+    radial-gradient(ellipse at 50% -40%, rgba(91, 58, 134, 0.3), transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 40%, rgba(0, 0, 0, 0.3));
+  background-repeat: no-repeat;
+  background-position:
+    top 4px right 4px,
+    bottom 4px right 4px,
+    0 0,
+    0 0,
+    0 0;
+  background-size:
+    18px 18px,
+    18px 18px,
+    100% 100%,
+    100% 100%,
+    100% 100%;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.55),
+    inset 0 0 30px rgba(0, 0, 0, 0.45),
+    0 0 22px var(--toast-glow),
+    0 12px 30px rgba(0, 0, 0, 0.6) !important;
   font-family: var(--font-body);
+  font-size: 1.05rem;
+}
+
+.v-snackbar__wrapper.toast--success {
+  --toast-accent: #4caf7a;
+  --toast-glow: rgba(76, 175, 122, 0.22);
+}
+
+.v-snackbar__wrapper.toast--error {
+  --toast-accent: #d9463d;
+  --toast-glow: rgba(217, 70, 61, 0.25);
+}
+
+.toast .v-snackbar__content {
+  padding: 12px 8px 12px 14px;
+}
+
+.toast-body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toast-seal {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: var(--toast-accent);
+  border: 1px solid var(--toast-accent);
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.5));
+  box-shadow:
+    0 0 10px var(--toast-glow),
+    inset 0 0 6px rgba(0, 0, 0, 0.6);
+}
+
+.toast-text {
+  line-height: 1.35;
+}
+
+.toast .toast-close {
+  color: var(--gold);
+  opacity: 0.75;
+}
+
+.toast .toast-close:hover {
+  opacity: 1;
 }
 
 /* ───────────── Movimento ───────────── */

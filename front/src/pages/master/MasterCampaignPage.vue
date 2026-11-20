@@ -6,7 +6,6 @@ import CharacterCard from '@/components/CharacterCard.vue'
 import CombatEffect from '@/components/CombatEffect.vue'
 import CombatPanel from '@/components/CombatPanel.vue'
 import ConditionDialog from '@/components/ConditionDialog.vue'
-import DiceRoller from '@/components/DiceRoller.vue'
 import ImagesPanel from '@/components/ImagesPanel.vue'
 import LogFeed from '@/components/LogFeed.vue'
 import NpcCard from '@/components/NpcCard.vue'
@@ -256,17 +255,7 @@ const removeCondition = (conditionId: string) =>
   campaign.act(() => api.delete<ActionResult>(`/conditions/${conditionId}`))
 const removeSummon = (summonId: string) => campaign.act(() => api.delete<ActionResult>(`/summons/${summonId}`))
 
-// ── narração e log ──
-const note = ref('')
-const sendingNote = ref(false)
-async function sendNote() {
-  if (!note.value.trim()) return
-  sendingNote.value = true
-  const ok = await campaign.act(() => api.post<ActionResult>(`/campaigns/${id.value}/note`, { message: note.value.trim() }))
-  sendingNote.value = false
-  if (ok) note.value = ''
-}
-
+// ── log ──
 const revert = (entry: LogEntry) => campaign.act(() => api.post<ActionResult>(`/logs/${entry.id}/revert`))
 
 // ── mercador ──
@@ -477,26 +466,6 @@ async function toggleShop() {
                 </v-btn>
               </v-card>
 
-              <v-card v-if="state.status === 'ACTIVE'" class="card-frame pa-4" color="surface">
-                <div class="side-title">Narrar</div>
-                <div class="note-row">
-                  <v-text-field
-                    v-model="note"
-                    placeholder="Algo acontece…"
-                    maxlength="500"
-                    hide-details
-                    density="compact"
-                    @keyup.enter="sendNote"
-                  />
-                  <v-btn icon="mdi-send" color="primary" variant="flat" :loading="sendingNote" aria-label="Enviar narração" @click="sendNote" />
-                </div>
-              </v-card>
-
-              <v-card v-if="state.status === 'ACTIVE'" class="card-frame pa-4" color="surface">
-                <div class="side-title">Dados</div>
-                <DiceRoller :campaign-id="state.id" />
-              </v-card>
-
               <v-card class="card-frame pa-4" color="surface">
                 <div class="side-title">Log da mesa</div>
                 <LogFeed
@@ -658,11 +627,5 @@ async function toggleShop() {
   text-transform: uppercase;
   color: var(--gold);
   margin-bottom: 8px;
-}
-
-.note-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
 }
 </style>

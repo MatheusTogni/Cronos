@@ -422,15 +422,15 @@ onBeforeUnmount(() => {
 }
 
 /* modo leve e movimento reduzido: a carta só aparece, parada */
-:global(html.lite) .cr .rays,
-:global(html.lite) .cr .burst,
-:global(html.lite) .cr .float,
-:global(html.lite) .cr .spin,
-:global(html.lite) .cr .sway,
-:global(html.lite) .cr .ground-shadow,
-:global(html.lite) .cr .glare::before,
-:global(html.lite) .cr .kicker,
-:global(html.lite) .cr .hint {
+html.lite .cr .rays,
+html.lite .cr .burst,
+html.lite .cr .float,
+html.lite .cr .spin,
+html.lite .cr .sway,
+html.lite .cr .ground-shadow,
+html.lite .cr .glare::before,
+html.lite .cr .kicker,
+html.lite .cr .hint {
   animation: none;
 }
 

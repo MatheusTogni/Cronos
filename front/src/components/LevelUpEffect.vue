@@ -159,8 +159,8 @@ onBeforeUnmount(() => clearTimeout(timer))
 }
 
 /* modo leve e movimento reduzido: o mesmo aviso, sem animação */
-:global(html.lite) .lvl .rays,
-:global(html.lite) .lvl .card {
+html.lite .lvl .rays,
+html.lite .lvl .card {
   animation: none;
 }
 

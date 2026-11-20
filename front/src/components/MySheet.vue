@@ -577,7 +577,7 @@ h3 {
   }
 }
 
-:global(html.lite) .sheet.frenzy .hero {
+html.lite .sheet.frenzy .hero {
   animation: none;
   box-shadow: 0 0 0 1px rgba(208, 74, 58, 0.7);
 }

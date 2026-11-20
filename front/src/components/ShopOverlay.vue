@@ -593,11 +593,11 @@ async function buy(item: ShopItem) {
 }
 
 /* modo leve e movimento reduzido: sem portas, direto ao estande */
-:global(html.lite) .shop .doors {
+html.lite .shop .doors {
   display: none;
 }
 
-:global(html.lite) .shop .scene {
+html.lite .shop .scene {
   animation: none;
 }
 
