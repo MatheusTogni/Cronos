@@ -424,7 +424,7 @@ async function toggleShop() {
                     <v-btn size="small" color="error" variant="tonal" prepend-icon="mdi-sword-cross" @click="adjust(c, 'damage')">Dano</v-btn>
                     <v-btn size="small" color="success" variant="tonal" prepend-icon="mdi-heart-plus" @click="adjust(c, 'heal')">Cura</v-btn>
                     <v-btn size="small" color="info" variant="tonal" prepend-icon="mdi-water" @click="adjust(c, 'mana')">Mana</v-btn>
-                    <v-btn size="small" color="secondary" variant="tonal" prepend-icon="mdi-star-four-points" @click="adjust(c, 'xp')">XP</v-btn>
+                    <v-btn size="small" color="secondary" variant="tonal" prepend-icon="mdi-star-four-points" @click="adjust(c, 'level')">Nível</v-btn>
                     <v-btn size="small" color="warning" variant="tonal" prepend-icon="mdi-circle-multiple" @click="adjust(c, 'gold')">Ouro</v-btn>
                     <v-menu>
                       <template #activator="{ props }">

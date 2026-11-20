@@ -92,12 +92,12 @@ async function cancelOffer() {
   <div class="sheet" :class="{ frenzy }" :style="{ '--accent': cls.color }">
     <!-- cabeçalho: retrato, nome e ouro -->
     <div class="hero">
-      <v-avatar size="56" rounded="lg">
+      <v-avatar size="56" class="avatar">
         <v-img :src="cls.artFile" cover position="top" :alt="cls.name" />
       </v-avatar>
       <div class="hero-text">
         <div class="title-font hero-name">{{ character.name }}</div>
-        <div class="hero-sub">{{ cls.name }} · nível {{ character.level }} · {{ character.xp }} XP</div>
+        <div class="hero-sub">{{ cls.name }} · nível {{ character.level }}</div>
       </div>
       <div class="purse" role="status" :aria-label="`${character.gold} moedas de ouro`" :title="`${character.gold} moedas de ouro`">
         <v-icon icon="mdi-circle-multiple" color="secondary" size="small" />
@@ -257,6 +257,16 @@ async function cancelOffer() {
   align-items: center;
   gap: 12px;
   margin-bottom: 14px;
+}
+
+/* retrato redondo com a moldura da cor da classe, igual ao card do mestre */
+.avatar {
+  flex: none;
+  border: 2px solid var(--accent);
+  box-shadow:
+    0 0 0 2px #0b0810,
+    0 0 0 3px rgba(212, 160, 76, 0.55),
+    0 0 14px color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
 .hero-text {

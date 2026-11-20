@@ -6,7 +6,7 @@
 
 *Real-time character sheets for tabletop RPG nights: a PWA with a NestJS API, Vue 3 and Socket.IO. Docs in Portuguese.*
 
-Feito para jogar RPG de mesa com os amigos **sem controlar a ficha no papel**. O mestre cadastra os logins, abre o lobby da campanha e lança os eventos (dano, cura, mana, XP, condições, imagens). Cada jogador entra pelo celular, escolhe a classe e usa a própria ficha. Tudo aparece ao vivo para a party.
+Feito para jogar RPG de mesa com os amigos **sem controlar a ficha no papel**. O mestre cadastra os logins, abre o lobby da campanha e lança os eventos (dano, cura, mana, nível, condições, imagens). Cada jogador entra pelo celular, escolhe a classe e usa a própria ficha. Tudo aparece ao vivo para a party.
 
 A mesa continua física: os dados são de verdade, a conversa é o jogo e **o mestre resolve tudo**. O app só registra e dá apoio.
 
@@ -23,7 +23,7 @@ Prints e GIFs ajudam muito a vitrine. Coloque as imagens em docs/img/ e descomen
 ## O que tem
 
 - **Ficha ao vivo** no celular, enxuta: vida, mana, ouro, habilidades, invocações e condições na página; **mochila 3×3** (9 itens diferentes, quantidades somam na pilha), doar/trocar e anotações em atalhos com ícone. Tudo sincronizado por WebSocket.
-- **Painel do mestre**: dano, cura, mana, XP/nível, condições, itens, criaturas e inimigos em ações rápidas, com **log da mesa e desfazer** para qualquer ação.
+- **Painel do mestre**: dano, cura, mana, nível, condições, itens, criaturas e inimigos em ações rápidas, com **log da mesa e desfazer** para qualquer ação.
 - **Lobby e campanhas**: o mestre abre a campanha, os jogadores entram, escolhem a classe e ficam prontos.
 - **9 classes** com 3 habilidades cada, liberadas por nível (até o 15).
 - **Combate por turnos** com vez travada, vibração no celular de quem joga, efeito de tela ao começar e ao terminar e as habilidades em quadradinhos durante o combate (segure para ver os detalhes), com uma habilidade por turno.

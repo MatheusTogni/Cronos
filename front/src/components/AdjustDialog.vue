@@ -7,16 +7,15 @@ import type { ActionResult, Character } from '@/types/api'
 import type { AdjustKind } from '@/types/ui'
 import { HP_PER_LEVEL, MANA_PER_LEVEL, MAX_LEVEL } from '@/utils/classHooks'
 
-/** Ação rápida do mestre: dano, cura, mana, XP/nível e ouro. */
+/** Ação rápida do mestre: dano, cura, mana, nível e ouro. */
 const props = defineProps<{ character: Character | null; kind: AdjustKind }>()
 const open = defineModel<boolean>({ required: true })
 
 const campaign = useCampaignStore()
 
 const amount = ref<number | null>(null)
-/** Mana: gastar (-) ou recuperar (+). Ouro: tirar (-) ou dar (+). */
+/** Mana: gastar (-) ou recuperar (+). Ouro: tirar (-) ou dar (+). Nível: descer (-) ou subir (+). */
 const manaSign = ref<'-' | '+'>('-')
-const level = ref<number | null>(null)
 const reason = ref('')
 const busy = ref(false)
 
@@ -24,24 +23,30 @@ const CONFIG = {
   damage: { title: 'Causar dano', label: 'Dano', icon: 'mdi-sword-cross', color: 'error', quick: [1, 2, 3, 5, 10, 20] },
   heal: { title: 'Curar', label: 'Vida recuperada', icon: 'mdi-heart-plus', color: 'success', quick: [1, 2, 3, 5, 10, 20] },
   mana: { title: 'Mana', label: 'Quantidade', icon: 'mdi-water', color: 'info', quick: [1, 2, 3, 5] },
-  xp: { title: 'Experiência', label: 'XP ganho', icon: 'mdi-star-four-points', color: 'secondary', quick: [10, 25, 50, 100] },
+  level: { title: 'Nível', label: 'Níveis', icon: 'mdi-star-four-points', color: 'secondary', quick: [1, 2, 3] },
   gold: { title: 'Ouro', label: 'Moedas de ouro', icon: 'mdi-circle-multiple', color: 'warning', quick: [1, 3, 5, 10] },
 } as const
 
 const cfg = computed(() => CONFIG[props.kind])
 
+/** Rótulos do seletor (-)/(+) quando não é mana. */
+const SIGN_LABELS: Partial<Record<AdjustKind, [string, string]>> = {
+  gold: ['Tirar', 'Dar'],
+  level: ['Descer', 'Subir'],
+}
+
 watch(open, (isOpen) => {
   if (!isOpen) return
   amount.value = null
-  level.value = null
   reason.value = ''
-  manaSign.value = props.kind === 'gold' ? '+' : '-' // ouro começa em "dar"
+  // ouro começa em "dar" e nível em "subir"
+  manaSign.value = props.kind === 'gold' || props.kind === 'level' ? '+' : '-'
 })
 
 const preview = computed(() => {
   const c = props.character
   const n = Number(amount.value) || 0
-  if (!c || (!n && !level.value)) return ''
+  if (!c || !n) return ''
   switch (props.kind) {
     case 'damage':
       return `Vida: ${c.hp} → ${Math.max(0, c.hp - n)}/${c.hpMax}`
@@ -51,10 +56,8 @@ const preview = computed(() => {
       const next = manaSign.value === '-' ? Math.max(0, c.mana - n) : Math.min(c.manaMax, c.mana + n)
       return `Mana: ${c.mana} → ${next}/${c.manaMax}`
     }
-    case 'xp':
-      return [n ? `XP: ${c.xp} → ${c.xp + n}` : '', level.value ? `Nível: ${c.level} → ${Math.min(MAX_LEVEL, Math.max(1, c.level + level.value))}` : '']
-        .filter(Boolean)
-        .join(' · ')
+    case 'level':
+      return `Nível: ${c.level} → ${Math.min(MAX_LEVEL, Math.max(1, c.level + (manaSign.value === '-' ? -n : n)))}`
     case 'gold':
       return `Ouro: ${c.gold} → ${Math.max(0, c.gold + (manaSign.value === '-' ? -n : n))}`
   }
@@ -70,10 +73,7 @@ async function submit() {
   if (props.kind === 'heal') body.hp = Math.abs(n)
   if (props.kind === 'mana') body.mana = manaSign.value === '-' ? -Math.abs(n) : Math.abs(n)
   if (props.kind === 'gold') body.gold = manaSign.value === '-' ? -Math.abs(n) : Math.abs(n)
-  if (props.kind === 'xp') {
-    if (n) body.xp = n
-    if (level.value) body.level = Math.trunc(level.value)
-  }
+  if (props.kind === 'level') body.level = manaSign.value === '-' ? -Math.abs(n) : Math.abs(n)
   if (!Object.values(body).some((v) => v)) return
   if (reason.value.trim()) body.reason = reason.value.trim()
 
@@ -94,7 +94,7 @@ async function submit() {
       <v-card-text class="px-6">
         <v-form @submit.prevent="submit">
           <v-btn-toggle
-            v-if="kind === 'mana' || kind === 'gold'"
+            v-if="kind === 'mana' || kind === 'gold' || kind === 'level'"
             v-model="manaSign"
             mandatory
             divided
@@ -102,8 +102,8 @@ async function submit() {
             :color="cfg.color"
             class="mb-3"
           >
-            <v-btn value="-">{{ kind === 'gold' ? 'Tirar' : 'Gastar' }}</v-btn>
-            <v-btn value="+">{{ kind === 'gold' ? 'Dar' : 'Recuperar' }}</v-btn>
+            <v-btn value="-">{{ SIGN_LABELS[kind]?.[0] ?? 'Gastar' }}</v-btn>
+            <v-btn value="+">{{ SIGN_LABELS[kind]?.[1] ?? 'Recuperar' }}</v-btn>
           </v-btn-toggle>
 
           <v-text-field
@@ -121,15 +121,10 @@ async function submit() {
             </v-chip>
           </div>
 
-          <v-text-field
-            v-if="kind === 'xp'"
-            v-model.number="level"
-            label="Níveis (ex.: 1 para subir, -1 para descer)"
-            type="number"
-            :hint="`Cada nível: +${HP_PER_LEVEL} vida e +${MANA_PER_LEVEL} mana. Vai do 1 ao ${MAX_LEVEL}; a 2ª skill abre no 5 e a 3ª no 10.`"
-            persistent-hint
-            class="mt-3"
-          />
+          <p v-if="kind === 'level'" class="hint">
+            Cada nível: +{{ HP_PER_LEVEL }} vida e +{{ MANA_PER_LEVEL }} mana. Vai do 1 ao {{ MAX_LEVEL }}; a 2ª skill abre
+            no 5 e a 3ª no 10.
+          </p>
 
           <v-text-field
             v-model="reason"
@@ -158,6 +153,12 @@ async function submit() {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.hint {
+  margin: 10px 0 0;
+  font-size: 0.9rem;
+  opacity: 0.65;
 }
 
 .preview {

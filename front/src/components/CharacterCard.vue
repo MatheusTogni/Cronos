@@ -79,7 +79,6 @@ const emit = defineEmits<{ removeCondition: [id: string] }>()
     </div>
 
     <div class="foot">
-      <span title="Experiência"><v-icon icon="mdi-star-four-points" size="x-small" /> {{ character.xp }} XP</span>
       <span title="Moedas de ouro"><v-icon icon="mdi-circle-multiple" size="x-small" /> {{ character.gold }}</span>
       <span v-if="character.inventory.length" title="Itens">
         <v-icon icon="mdi-bag-personal" size="x-small" /> {{ character.inventory.length }}
