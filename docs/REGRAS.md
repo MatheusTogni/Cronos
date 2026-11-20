@@ -9,7 +9,7 @@ Não existe cadastro aberto. O mestre cria os logins em *Usuários* e escolhe o 
 ## Campanha
 
 1. O mestre cria a campanha (em preparação) e clica em **Abrir lobby**.
-2. Os jogadores veem a campanha em *Campanhas abertas* (a lista atualiza sozinha) e clicam em **Entrar**.
+2. Os jogadores veem a campanha em *Campanhas abertas* (a lista atualiza sozinha) e clicam em **Entrar**. Cabem até **10 jogadores** por mesa (o mestre não conta); com a mesa cheia, o botão vira *Mesa cheia*.
 3. Cada jogador escolhe a classe, dá nome ao personagem e aperta **Estou pronto**. Trocar de classe cancela o pronto.
 4. Quando todos estão prontos, o mestre aperta **Começar aventura**.
 

@@ -35,6 +35,8 @@ import {
 
 const { DRAFT, LOBBY, ACTIVE, ENDED } = CampaignStatus;
 const LOG_LIMIT = 150;
+/** Máximo de jogadores sentados numa campanha (o mestre não conta). */
+export const MAX_PLAYERS = 10;
 
 @Injectable()
 export class CampaignsService {
@@ -85,6 +87,7 @@ export class CampaignsService {
         status: c.status,
         master: c.master,
         playerCount: c.players.length,
+        maxPlayers: MAX_PLAYERS,
         joined: !!me,
         ready: me?.ready ?? false,
       };
@@ -275,10 +278,22 @@ export class CampaignsService {
         ? 'Essa aventura já começou'
         : 'Essa campanha não está aberta',
     );
-    await this.prisma.campaignPlayer.upsert({
-      where: { campaignId_userId: { campaignId: id, userId: user.id } },
-      create: { campaignId: id, userId: user.id },
-      update: {},
+    await this.prisma.$transaction(async (tx) => {
+      const seat = await tx.campaignPlayer.findUnique({
+        where: { campaignId_userId: { campaignId: id, userId: user.id } },
+      });
+      if (seat) return; // já está na mesa: entrar de novo não ocupa outra vaga
+      const seated = await tx.campaignPlayer.count({
+        where: { campaignId: id },
+      });
+      if (seated >= MAX_PLAYERS) {
+        throw new BadRequestException(
+          `A mesa está cheia (${MAX_PLAYERS} jogadores)`,
+        );
+      }
+      await tx.campaignPlayer.create({
+        data: { campaignId: id, userId: user.id },
+      });
     });
     await this.realtime.broadcastState(id);
     this.realtime.campaignsChanged();

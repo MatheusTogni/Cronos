@@ -96,6 +96,7 @@ export interface OpenCampaign {
   status: CampaignStatus
   master: { displayName: string }
   playerCount: number
+  maxPlayers: number
   joined: boolean
   ready: boolean
 }

@@ -75,7 +75,7 @@ onBeforeUnmount(() => {
       >
         <div class="camp-main">
           <div class="title-font camp-name">{{ c.name }}</div>
-          <div class="camp-sub">Mestre {{ c.master.displayName }} · {{ c.playerCount }} na mesa</div>
+          <div class="camp-sub">Mestre {{ c.master.displayName }} · {{ c.playerCount }}/{{ c.maxPlayers }} na mesa</div>
         </div>
         <v-btn v-if="c.status === 'ACTIVE'" color="primary" variant="flat" append-icon="mdi-arrow-right">
           Voltar para a aventura
@@ -104,9 +104,18 @@ onBeforeUnmount(() => {
       <div class="camp-main">
         <div class="title-font camp-name">{{ c.name }}</div>
         <div v-if="c.description" class="camp-desc">{{ c.description }}</div>
-        <div class="camp-sub">Mestre {{ c.master.displayName }} · {{ c.playerCount }} na mesa</div>
+        <div class="camp-sub">Mestre {{ c.master.displayName }} · {{ c.playerCount }}/{{ c.maxPlayers }} na mesa</div>
       </div>
-      <v-btn color="primary" variant="flat" size="large" :loading="joining === c.id" @click="join(c)">Entrar</v-btn>
+      <v-btn
+        color="primary"
+        variant="flat"
+        size="large"
+        :disabled="c.playerCount >= c.maxPlayers"
+        :loading="joining === c.id"
+        @click="join(c)"
+      >
+        {{ c.playerCount >= c.maxPlayers ? 'Mesa cheia' : 'Entrar' }}
+      </v-btn>
     </v-card>
   </div>
 </template>
