@@ -11,7 +11,8 @@ import LogFeed from '@/components/LogFeed.vue'
 import NpcCard from '@/components/NpcCard.vue'
 import QuickFormDialog from '@/components/QuickFormDialog.vue'
 import TakeItemDialog from '@/components/TakeItemDialog.vue'
-import { api } from '@/services/api'
+import WhisperSendDialog from '@/components/WhisperSendDialog.vue'
+import { api, errorMessage } from '@/services/api'
 import { useCampaignStore } from '@/stores/campaign'
 import { useClassesStore } from '@/stores/classes'
 import { useConfirmStore } from '@/stores/confirm'
@@ -73,6 +74,52 @@ async function deleteCampaign() {
   if (!sure) return
   const ok = await campaign.act(() => api.delete(`/campaigns/${id.value}`).then(() => ({ data: null })))
   if (ok) await router.push('/mestre/campanhas')
+}
+
+async function restartCampaign() {
+  const sure = await confirm.ask({
+    title: `Recomeçar "${state.value?.name ?? 'a campanha'}"?`,
+    text: 'Jogadores, personagens, inimigos e o log da mesa serão apagados e a campanha volta para a preparação. As imagens enviadas continuam. Isso não pode ser desfeito.',
+    confirmLabel: 'Recomeçar',
+    icon: 'mdi-restart',
+  })
+  if (!sure) return
+  busy.value = true
+  const ok = await campaign.act(() => api.post(`/campaigns/${id.value}/restart`))
+  busy.value = false
+  if (ok) {
+    tab.value = 'mesa'
+    notify.success('Campanha recomeçada')
+  }
+}
+
+const duplicating = ref(false)
+async function duplicateCampaign() {
+  const sure = await confirm.ask({
+    title: `Duplicar "${state.value?.name ?? 'a campanha'}"?`,
+    text: 'Cria uma nova campanha em preparação com o mesmo nome, descrição e imagens. Jogadores, personagens e log não são copiados.',
+    confirmLabel: 'Duplicar',
+    icon: 'mdi-content-copy',
+  })
+  if (!sure) return
+  duplicating.value = true
+  try {
+    const { data } = await api.post<{ id: string }>(`/campaigns/${id.value}/duplicate`)
+    notify.success('Cópia criada')
+    await router.push(`/mestre/campanhas/${data.id}`)
+  } catch (e) {
+    notify.error(errorMessage(e))
+  } finally {
+    duplicating.value = false
+  }
+}
+
+// ── mensagem secreta ──
+const whisperOpen = ref(false)
+const whisperTo = ref<string | null>(null)
+function openWhisper(userId: string | null) {
+  whisperTo.value = userId
+  whisperOpen.value = true
 }
 
 // ── lobby ──
@@ -288,6 +335,16 @@ async function toggleShop() {
           :color="realtime.connected ? 'success' : 'error'"
           :title="realtime.connected ? 'Ao vivo' : 'Sem conexão ao vivo — tentando reconectar'"
         />
+        <v-btn
+          v-if="state.status === 'LOBBY' || state.status === 'ACTIVE'"
+          color="secondary"
+          variant="tonal"
+          prepend-icon="mdi-email-seal"
+          :disabled="!state.players.length"
+          @click="openWhisper(null)"
+        >
+          Mensagem secreta
+        </v-btn>
       </div>
       <p v-if="state.description" class="desc">{{ state.description }}</p>
 
@@ -309,7 +366,10 @@ async function toggleShop() {
             <v-btn color="primary" size="large" prepend-icon="mdi-door-open" :loading="busy" @click="lifecycle('open')">
               Abrir lobby
             </v-btn>
-            <div class="mt-6">
+            <div class="mt-6 manage">
+              <v-btn variant="text" prepend-icon="mdi-content-copy" size="small" :loading="duplicating" @click="duplicateCampaign">
+                Duplicar campanha
+              </v-btn>
               <v-btn variant="text" prepend-icon="mdi-delete" size="small" @click="deleteCampaign">
                 Excluir campanha
               </v-btn>
@@ -436,6 +496,7 @@ async function toggleShop() {
                         <v-list-item prepend-icon="mdi-bag-personal-off-outline" title="Tirar item" :disabled="!c.inventory.length" @click="openTake(c)" />
                         <v-list-item prepend-icon="mdi-skull" title="Criatura" @click="openForm(c, 'summon')" />
                         <v-list-item prepend-icon="mdi-pencil" title="Editar ficha" @click="openForm(c, 'sheet')" />
+                        <v-list-item prepend-icon="mdi-email-seal" title="Mensagem secreta" @click="openWhisper(c.userId)" />
                       </v-list>
                     </v-menu>
                   </template>
@@ -476,13 +537,29 @@ async function toggleShop() {
                 />
               </v-card>
 
-              <div v-if="state.status === 'ACTIVE'">
-                <v-btn variant="text" size="small" prepend-icon="mdi-close-octagon" @click="endCampaign">
+              <div class="manage">
+                <v-btn
+                  v-if="state.status === 'ACTIVE'"
+                  variant="text"
+                  size="small"
+                  prepend-icon="mdi-close-octagon"
+                  @click="endCampaign"
+                >
                   Encerrar campanha
                 </v-btn>
-              </div>
-              <div v-else>
-                <v-btn variant="text" size="small" prepend-icon="mdi-delete" @click="deleteCampaign">
+                <v-btn v-else variant="text" size="small" prepend-icon="mdi-restart" :loading="busy" @click="restartCampaign">
+                  Recomeçar campanha
+                </v-btn>
+                <v-btn variant="text" size="small" prepend-icon="mdi-content-copy" :loading="duplicating" @click="duplicateCampaign">
+                  Duplicar campanha
+                </v-btn>
+                <v-btn
+                  v-if="state.status !== 'ACTIVE'"
+                  variant="text"
+                  size="small"
+                  prepend-icon="mdi-delete"
+                  @click="deleteCampaign"
+                >
                   Excluir campanha
                 </v-btn>
               </div>
@@ -499,6 +576,7 @@ async function toggleShop() {
 
     <AdjustDialog v-model="adjustOpen" :character="target" :kind="adjustKind" />
     <TakeItemDialog v-model="takeOpen" :character="target" />
+    <WhisperSendDialog v-model="whisperOpen" :campaign-id="id" :user-id="whisperTo" />
     <CombatEffect />
     <ConditionDialog v-model="conditionOpen" :target="conditionTarget" />
     <QuickFormDialog
@@ -524,6 +602,18 @@ async function toggleShop() {
 .hint {
   opacity: 0.6;
   font-size: 0.9rem;
+}
+
+/* recomeçar / duplicar / excluir */
+.manage {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 8px;
+}
+
+.side .manage {
+  justify-content: flex-start;
 }
 
 .empty {

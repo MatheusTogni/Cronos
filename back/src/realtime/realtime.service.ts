@@ -27,6 +27,7 @@ import {
  *  - transfer:new / transfer:updated (oferta de doação/troca) → só os dois jogadores envolvidos
  *  - campaigns:changed  (sem payload)                 → para todos os jogadores
  *  - campaign:kicked    ({ campaignId })              → para o jogador removido
+ *  - whisper            ({ campaignId, id, message, sentAt }) → mensagem secreta do mestre, só para os escolhidos (não fica guardada)
  */
 @Injectable()
 export class RealtimeService {

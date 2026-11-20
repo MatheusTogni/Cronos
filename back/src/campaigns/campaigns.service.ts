@@ -5,10 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CampaignStatus, LogType } from '@prisma/client';
-import { unlink } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { copyFile, unlink } from 'node:fs/promises';
+import { extname } from 'node:path';
 import type { AuthUser } from '../auth/auth-user';
 import { writeLog } from '../game/journal';
-import { uploadPath } from '../images/upload-dir';
+import { ensureUploadDir, uploadPath } from '../images/upload-dir';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import {
@@ -31,6 +33,7 @@ import {
   ChooseCharacterDto,
   CreateCampaignDto,
   UpdateCampaignDto,
+  WhisperDto,
 } from './dto';
 
 const { DRAFT, LOBBY, ACTIVE, ENDED } = CampaignStatus;
@@ -250,6 +253,146 @@ export class CampaignsService {
     this.realtime.emitLog(id, log);
     this.realtime.campaignsChanged();
     return this.getState(id, user);
+  }
+
+  /**
+   * Recomeça uma campanha encerrada do zero: volta para "em preparação" sem
+   * jogadores, personagens, inimigos, trocas nem log. As imagens enviadas ficam.
+   */
+  async restart(id: string, user: AuthUser) {
+    const campaign = await loadCampaign(this.prisma, id);
+    assertCampaignMaster(campaign, user);
+    assertStatus(
+      campaign,
+      [ENDED],
+      'Só dá para recomeçar uma campanha encerrada',
+    );
+
+    const seats = await this.prisma.campaignPlayer.findMany({
+      where: { campaignId: id },
+      select: { userId: true },
+    });
+
+    await this.prisma.$transaction([
+      // o log e as trocas primeiro: apontam para os personagens
+      this.prisma.logEntry.deleteMany({ where: { campaignId: id } }),
+      this.prisma.transfer.deleteMany({ where: { campaignId: id } }),
+      // personagens levam junto criaturas, condições e mochila (cascade)
+      this.prisma.character.deleteMany({ where: { campaignId: id } }),
+      this.prisma.npc.deleteMany({ where: { campaignId: id } }),
+      this.prisma.campaignPlayer.deleteMany({ where: { campaignId: id } }),
+      this.prisma.campaign.update({
+        where: { id },
+        data: {
+          status: DRAFT,
+          startedAt: null,
+          endedAt: null,
+          shownImageId: null,
+          inCombat: false,
+          round: 0,
+          turnIndex: 0,
+          turnOrder: [],
+          shopOpen: false,
+        },
+      }),
+    ]);
+
+    // quem ainda estava na tela da campanha antiga sai dela
+    for (const s of seats) this.realtime.kicked(s.userId, id);
+    await this.realtime.broadcastState(id);
+    this.realtime.campaignsChanged();
+    return this.getState(id, user);
+  }
+
+  /**
+   * Cria uma cópia da campanha em preparação: mesmo nome (com "(cópia)"),
+   * descrição e imagens. Cada imagem ganha um arquivo próprio no disco, então
+   * apagar uma das campanhas não estraga a outra. Mesa, personagens e log não vêm.
+   */
+  async duplicate(id: string, user: AuthUser) {
+    const campaign = await loadCampaign(this.prisma, id);
+    assertCampaignMaster(campaign, user);
+
+    const images = await this.prisma.campaignImage.findMany({
+      where: { campaignId: id },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    // copia os arquivos antes; se o banco falhar, apaga as cópias
+    ensureUploadDir();
+    const copies: { from: (typeof images)[number]; filename: string }[] = [];
+    try {
+      for (const img of images) {
+        const filename = `${randomUUID()}${extname(img.filename)}`;
+        await copyFile(uploadPath(img.filename), uploadPath(filename));
+        copies.push({ from: img, filename });
+      }
+    } catch {
+      await this.discardFiles(copies.map((c) => c.filename));
+      throw new BadRequestException(
+        'Não foi possível copiar as imagens da campanha',
+      );
+    }
+
+    try {
+      const name = `${campaign.name} (cópia)`.slice(0, 80);
+      const created = await this.prisma.campaign.create({
+        data: {
+          name,
+          description: campaign.description,
+          masterId: user.id,
+          images: {
+            // a mesma data de envio mantém a ordem da galeria
+            create: copies.map((c) => ({
+              filename: c.filename,
+              originalName: c.from.originalName,
+              title: c.from.title,
+              createdAt: c.from.createdAt,
+            })),
+          },
+        },
+      });
+      return created;
+    } catch (e) {
+      await this.discardFiles(copies.map((c) => c.filename));
+      throw e;
+    }
+  }
+
+  private discardFiles(filenames: string[]) {
+    return Promise.all(
+      filenames.map((f) => unlink(uploadPath(f)).catch(() => undefined)),
+    );
+  }
+
+  /**
+   * Mensagem secreta do mestre para alguns jogadores. Só vai pelo tempo real,
+   * direto para as conexões de cada um: não entra no log nem fica no banco.
+   */
+  async whisper(id: string, dto: WhisperDto, user: AuthUser) {
+    const campaign = await loadCampaign(this.prisma, id);
+    assertCampaignMaster(campaign, user);
+    assertStatus(
+      campaign,
+      [LOBBY, ACTIVE],
+      'A campanha não está em andamento',
+    );
+    const targets = [...new Set(dto.userIds)];
+    const seated = await this.prisma.campaignPlayer.count({
+      where: { campaignId: id, userId: { in: targets } },
+    });
+    if (seated !== targets.length) {
+      throw new BadRequestException('Escolha só jogadores desta campanha');
+    }
+    const payload = {
+      campaignId: id,
+      id: randomUUID(),
+      message: dto.message,
+      sentAt: new Date().toISOString(),
+    };
+    for (const userId of targets) {
+      this.realtime.toUser(userId, 'whisper', payload);
+    }
   }
 
   async kick(id: string, userId: string, user: AuthUser) {

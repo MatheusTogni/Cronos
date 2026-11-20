@@ -5,6 +5,7 @@ import CharacterCard from '@/components/CharacterCard.vue'
 import CombatEffect from '@/components/CombatEffect.vue'
 import ConditionReveal from '@/components/ConditionReveal.vue'
 import ImageOverlay from '@/components/ImageOverlay.vue'
+import WhisperDialog from '@/components/WhisperDialog.vue'
 import LevelUpEffect from '@/components/LevelUpEffect.vue'
 import LogFeed from '@/components/LogFeed.vue'
 import MySheet from '@/components/MySheet.vue'
@@ -37,12 +38,12 @@ const tab = ref<'ficha' | 'party' | 'log'>('ficha')
 watch(id, (v) => campaign.open(v), { immediate: true })
 onBeforeUnmount(() => campaign.close())
 
-// removido do lobby pelo mestre
+// removido do lobby pelo mestre, ou a campanha encerrada foi recomeçada
 watch(
   () => campaign.kicked,
   async (k) => {
     if (!k) return
-    notify.info('O mestre tirou você deste lobby')
+    notify.info(state.value?.status === 'ENDED' ? 'O mestre recomeçou esta campanha' : 'O mestre tirou você deste lobby')
     await router.push('/jogador')
   },
 )
@@ -173,6 +174,7 @@ watch(tab, (t) => {
       </template>
 
       <ImageOverlay :image="state.shownImage ?? campaign.privateImage" />
+      <WhisperDialog />
       <ShopOverlay v-if="state.status === 'ACTIVE'" :open="state.shopOpen" />
       <TransferInbox v-if="state.status === 'ACTIVE'" />
       <CombatEffect />

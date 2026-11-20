@@ -313,3 +313,10 @@ export interface CampaignPatch {
 export interface ActionResult {
   log: LogEntry | null
 }
+
+/** Mensagem secreta do mestre para um jogador (só tempo real, não fica guardada). */
+export interface Whisper {
+  id: string
+  message: string
+  sentAt: string
+}

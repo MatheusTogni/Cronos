@@ -18,6 +18,7 @@ import {
   CreateCampaignDto,
   ReadyDto,
   UpdateCampaignDto,
+  WhisperDto,
 } from './dto';
 
 const Id = () => new ParseUUIDPipe({ version: '4' });
@@ -73,6 +74,29 @@ export class CampaignsController {
   @Roles(Role.MASTER)
   end(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
     return this.campaigns.end(id, user);
+  }
+
+  @Post(':id/restart')
+  @Roles(Role.MASTER)
+  restart(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
+    return this.campaigns.restart(id, user);
+  }
+
+  @Post(':id/duplicate')
+  @Roles(Role.MASTER)
+  duplicate(@Param('id', Id()) id: string, @CurrentUser() user: AuthUser) {
+    return this.campaigns.duplicate(id, user);
+  }
+
+  @Post(':id/whisper')
+  @Roles(Role.MASTER)
+  @HttpCode(204)
+  whisper(
+    @Param('id', Id()) id: string,
+    @Body() dto: WhisperDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.campaigns.whisper(id, dto, user);
   }
 
   @Delete(':id/players/:userId')

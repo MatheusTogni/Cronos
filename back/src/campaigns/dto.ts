@@ -1,9 +1,13 @@
 import { Transform } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayNotEmpty,
+  IsArray,
   IsBoolean,
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
 } from 'class-validator';
 
@@ -54,4 +58,19 @@ export class ChooseCharacterDto {
 export class ReadyDto {
   @IsBoolean()
   ready!: boolean;
+}
+
+/** Mensagem secreta do mestre: vai só para os jogadores escolhidos e não fica guardada. */
+export class WhisperDto {
+  @IsArray()
+  @ArrayNotEmpty({ message: 'Escolha pelo menos um jogador' })
+  @ArrayMaxSize(50)
+  @IsUUID('4', { each: true })
+  userIds!: string[];
+
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty({ message: 'Escreva a mensagem' })
+  @MaxLength(1000)
+  message!: string;
 }

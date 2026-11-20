@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useClassesStore } from '@/stores/classes'
 import { useNotifyStore } from '@/stores/notify'
 import { useRealtimeStore } from '@/stores/realtime'
-import type { ActionResult, CampaignPatch, CampaignState, ListPatch, LogEntry, Transfer } from '@/types/api'
+import type { ActionResult, CampaignPatch, CampaignState, ListPatch, LogEntry, Transfer, Whisper } from '@/types/api'
 import { buzz } from '@/utils/haptics'
 
 type StateWithLogs = CampaignState & { logs: LogEntry[] }
@@ -33,6 +33,11 @@ export const useCampaignStore = defineStore('campaign', () => {
    * fica guardada no servidor (é só apoio à narração): recarregar a página a limpa.
    */
   const privateImage = ref<{ id: string; url: string } | null>(null)
+  /**
+   * Jogador: mensagens secretas do mestre ainda não lidas, na ordem em que
+   * chegaram. Só existem nesta tela: o servidor não guarda nem põe no log.
+   */
+  const whispers = ref<Whisper[]>([])
   /** Mestre: a última imagem que mostrou só a alguns, para avisar e poder ocultar. */
   const privateShown = ref<{ imageId: string; names: string[] } | null>(null)
 
@@ -191,6 +196,9 @@ export const useCampaignStore = defineStore('campaign', () => {
       realtime.on<{ campaignId: string; image: { id: string; url: string } | null }>('image:shown', (p) => {
         if (p.campaignId === campaignId.value) privateImage.value = p.image
       }),
+      realtime.on<Whisper & { campaignId: string }>('whisper', ({ campaignId: cid, ...w }) => {
+        if (cid === campaignId.value) whispers.value.push(w)
+      }),
       realtime.on<Transfer>('transfer:new', (t) => onTransfer(t, true)),
       realtime.on<Transfer>('transfer:updated', (t) => onTransfer(t, false)),
       realtime.on<{ id: string }>('log:reverted', ({ id }) => {
@@ -245,6 +253,7 @@ export const useCampaignStore = defineStore('campaign', () => {
     logs.value = []
     transfers.value = []
     privateImage.value = null
+    whispers.value = []
     privateShown.value = null
   }
 
@@ -274,6 +283,7 @@ export const useCampaignStore = defineStore('campaign', () => {
     error,
     kicked,
     privateImage,
+    whispers,
     privateShown,
     isMaster,
     myCharacter,
