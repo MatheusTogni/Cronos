@@ -68,7 +68,7 @@ async function submit() {
           Mana insuficiente: precisa de {{ ability.manaCost }}, você tem {{ character.mana }}.
         </v-alert>
 
-        <div class="hint">Diga na mesa o que você faz. O mestre decide o que acontece.</div>
+        <div class="hint">Diga na mesa o que você faz.</div>
       </v-card-text>
 
       <v-card-actions class="px-6 pb-5">

@@ -47,11 +47,10 @@ interface Effect {
 /** O que o item faz ao ser usado. */
 const effects = computed<Effect[]>(() => {
   const p = product.value
-  if (!p) return [{ icon: 'mdi-crown', color: 'warning', text: 'O mestre decide o efeito' }]
+  if (!p) return []
   const list: Effect[] = []
   if (p.hp) list.push({ icon: 'mdi-heart', color: 'error', text: `+${p.hp} de vida` })
   if (p.mana) list.push({ icon: 'mdi-water', color: 'info', text: `+${p.mana} de mana` })
-  if (!p.hp && !p.mana) list.push({ icon: 'mdi-crown', color: 'warning', text: 'O mestre decide o efeito' })
   if (p.keep) list.push({ icon: 'mdi-infinity', color: 'secondary', text: 'Não se gasta ao usar' })
   return list
 })
@@ -134,7 +133,7 @@ function transfer(mode: Exclude<TransferMode, 'gold'>) {
 
           <p class="detail-desc pre-line">{{ description }}</p>
 
-          <div class="effects">
+          <div v-if="effects.length" class="effects">
             <v-chip v-for="e in effects" :key="e.text" :color="e.color" size="small" variant="tonal" :prepend-icon="e.icon">
               {{ e.text }}
             </v-chip>

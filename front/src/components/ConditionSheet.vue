@@ -23,7 +23,6 @@ const accent = computed(() => conditionArt(props.def.id, props.def.polarity).col
     <section>
       <h3>Efeito</h3>
       <p class="pre-line">{{ def.description }}</p>
-      <p class="note">O mestre decide o que a condição faz e quando ela termina.</p>
     </section>
   </div>
 </template>
@@ -59,12 +58,5 @@ h3 {
 p {
   margin: 0;
   line-height: 1.45;
-}
-
-.note {
-  margin-top: 10px;
-  font-size: 0.9rem;
-  opacity: 0.7;
-  font-style: italic;
 }
 </style>
